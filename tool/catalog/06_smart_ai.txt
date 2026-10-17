@@ -1,0 +1,419 @@
+### 108 | Rule Conditions (JSON rules) | Algorithm module
+src: lib/13_smart_features/rule_conditions.dart
+symbol: Condition
+origin: NEW
+desc: A small JSON condition language (all/any/not, 13 operators, dotted paths, dates) shared by every configurable rule.
+use: Any business rule that should change without a new build — risk rules, automations, badges, suggestions
+in: Condition.fromJson({'all': [{'field': 'age', 'op': '>=', 'value': 65}, …]}); a facts map
+out: evaluate(facts) → bool; describe() → readable text; toJson()
+deps: Pure Dart
+integ: Load JSON from an asset, a table or remote config → Condition.fromJson → evaluate against your data as a Map
+cx: Low
+defend: Rules as data are auditable and editable by non-developers; deterministic; a missing fact makes rules false so nothing fires on data you don't have
+tests: test/13_smart_features/rules_and_scoring_test.dart :: group:Condition
+status: full
+edge: Missing fact → false except not_exists (Not() inverts this — add exists when it matters); strings compare case-insensitively; ISO strings compare as dates; unknown operator → FormatException at load
+limits: No arithmetic between fields (write a derived fact instead)
+example:
+final rule = Condition.fromJson({'field': 'remaining', 'op': '<', 'value': 3});
+if (rule.evaluate({'remaining': item.qty})) addToShoppingList(item);
+---
+### 109 | Smart Matching | Algorithm module
+src: lib/13_smart_features/smart_matching.dart
+symbol: SmartMatcher
+origin: NEW
+desc: Ranks candidates for a seeker by weighted, explainable criteria and can pair two groups one-to-one.
+use: Mentor/mentee, tutor/student, volunteer/task, roommates, teammates, donor/request
+in: MatchCriterion(name, score(seeker, candidate) 0..1, weight, required); SmartMatcher(criteria, minScore)
+out: rank() → [MatchResult(candidate, score, percent, breakdown, explanation, strengths())]; assignOneToOne()
+deps: Pure Dart
+integ: Map your two models to criteria lambdas (jaccard, coverage, proximityScore, closeness, rangeOverlap, textSimilarity) → rank → list with percent + "why" chips
+cx: Medium
+defend: Weighted average of normalised criteria; required criteria act as hard filters; stable ordering for ties; every score is explained — no hidden model
+tests: test/13_smart_features/rules_and_scoring_test.dart :: group:smart matching helpers ; test/13_smart_features/rules_and_scoring_test.dart :: group:Matcher
+status: full
+edge: Required criterion scoring 0 excludes the candidate; two empty sets → jaccard 0; ties keep input order
+limits: Greedy one-to-one is not globally optimal; weights are your judgement; O(n·m)
+example:
+final ranked = SmartMatcher<Student, Tutor>([MatchCriterion('Subjects', weight: 3, required: true, score: (s, t) => coverage(s.subjects, t.subjects))]).rank(me, tutors);
+---
+### 110 | Recommendations | Algorithm module
+src: lib/13_smart_features/recommendations.dart
+symbol: Recommender
+origin: NEW
+desc: "You might also like…" from tag similarity, items liked together and popularity, each with a reason.
+use: Recipes, courses, articles, events, products, exercises
+in: Recommender(idOf, tagsOf, titleOf, weights); recommend(catalog, liked, histories, exclude, limit); similarTo(item, catalog)
+out: [Recommendation(item, score, reason)]
+deps: Pure Dart
+integ: liked = the user's favourites; histories = everyone's favourites (optional) → carousel with the reason as subtitle
+cx: Medium
+defend: Cosine similarity over tags + normalised co-occurrence + popularity for cold start; reproducible and explainable ("Similar to Lentil soup")
+tests: test/13_smart_features/rules_and_scoring_test.dart :: group:Recommender
+status: full
+edge: No likes → popularity fallback; excluded ids never returned
+limits: Only as good as the tags; no diversity control; scores are relative within one call
+example:
+final picks = Recommender<Recipe>(idOf: (r) => r.id, tagsOf: (r) => r.tags).recommend(catalog: recipes, liked: favourites);
+---
+### 111 | Smart Priority Scoring | Algorithm module
+src: lib/13_smart_features/priority_scoring.dart
+symbol: scorePriority, rankByPriority
+origin: NEW
+desc: Ranks items based on urgency, importance, effort and time waiting.
+use: Task managers, ticketing, appointments, incident reports
+in: Urgency (due date), importance 1–5, effort hours, created date; PriorityRules (weights, thresholds)
+out: Ranked list with scores — PriorityScore(score 0–100, band, reasons); eisenhowerQuadrant
+deps: Pure Dart
+integ: Import service → map models (PriorityInput) → call scoring function (scorePriority / rankByPriority) → display results (band chip + reasons)
+cx: Low
+defend: Explain weighted scoring, normalization, tie-breaking, and why deterministic logic was preferred — weights are normalised so they need not sum to 1; urgency rises linearly over a window; ties keep input order; the same task always gets the same score and its reasons
+tests: test/13_smart_features/rules_and_scoring_test.dart :: group:priority scoring
+status: full
+edge: Overdue + importance ≥ 4 is always critical; no due date → urgency 0; all-zero weights → score 0
+limits: Importance is self-reported; no task dependencies; ignores how much free time exists (pair with Smart scheduling)
+example:
+final ranked = rankByPriority(tasks, (t) => PriorityInput(due: t.due, importance: t.importance), now: DateTime.now());
+final (top, score) = ranked.first;   // score.band, score.reasons
+---
+### 112 | Risk Scoring | Algorithm module
+src: lib/13_smart_features/risk_scoring.dart
+symbol: RiskModel
+origin: NEW
+desc: Points-based scorecard from JSON rules: matched rules add points, the total maps to a level, and the rules explain why.
+use: At-risk students, wellbeing check-ins, budget overspend, inspections, plant health
+in: RiskModel.fromJson({'levels': {...}, 'rules': [{id, label, points, when}]}); assess(facts)
+out: RiskAssessment(points, level, matched, reasons, fraction)
+deps: Pure Dart
+integ: Build facts from your data (attendance, trends) → assess → StatusBanner + reasons; trigger automations on "high"
+cx: Low
+defend: How real screening checklists work — transparent, auditable, tunable by experts in JSON; negative points model protective factors
+tests: test/13_smart_features/rules_and_scoring_test.dart :: group:RiskModel
+status: full
+edge: Missing data scores 0 (add not_exists rules for "no data"); malformed JSON fails at load
+limits: Not a validated predictive model — present as screening, never diagnosis; additive (no interactions)
+example:
+final result = RiskModel.fromJson(json).assess({'attendance': 0.7, 'lateSubmissions': 4});
+---
+### 113 | Trends | Algorithm module
+src: lib/13_smart_features/trends.dart
+symbol: analyzeTrend, dailySeries
+origin: NEW
+desc: Direction, change, moving averages, weekday patterns, volatility and unusual values for any daily metric.
+use: Study minutes, spending, steps, sleep, mood, sales
+in: dailySeries(events, dateOf, valueOf, from, to); analyzeTrend(values, flatThreshold); linearFit, movingAverage, percentChange, anomalies, weekdayAverages
+out: TrendSummary(direction, slope, fit r², average, latest, min, max, volatility, changePercent)
+deps: Pure Dart
+integ: Log → dailySeries → SimpleLineChart + analyzeTrend label → insights
+cx: Low
+defend: Textbook statistics (least squares, z-scores); r² tells you when the "trend" is too weak to claim
+tests: test/13_smart_features/analytics_and_engagement_test.dart :: group:trends
+status: full
+edge: < 3 points → flat; percentChange from 0 → null; anomalies need ≥ 4 points
+limits: Straight lines miss seasonality
+example:
+final summary = analyzeTrend([for (final d in dailySeries(logs, dateOf: (l) => l.at, valueOf: (l) => l.minutes, from: start, to: now)) d.value]);
+---
+### 114 | Predictions | Algorithm module
+src: lib/13_smart_features/predictions.dart
+symbol: predictWhenReached, checkPace, RulePredictor
+origin: NEW
+desc: Linear forecasts with a band, goal ETAs, on-pace checks and first-match rule predictions.
+use: Goal ETAs, syllabus completion, stock run-out, "likely to miss the deadline"
+in: forecastLinear(values, steps); exponentialSmoothing; predictWhenReached(cumulative, target, lastDate); checkPace(done, total, start, due, now); RulePredictor(rules, fallback)
+out: Forecast values; (steps, date)?; PaceCheck(status, expectedDone, projectedFinish); (outcome, confidence, because)
+deps: Pure Dart
+integ: Show "at your current pace…" under progress bars; colour by PaceStatus
+cx: Low
+defend: Honest extrapolation, phrased as "at your current pace"; rule confidence is stated, not learnt
+tests: test/13_smart_features/analytics_and_engagement_test.dart :: group:predictions
+status: full
+edge: Flat or falling series → null ETA; nothing done → notStarted
+limits: Cannot know about future events; diverges far beyond the data
+example:
+final eta = predictWhenReached(cumulativeSavings, target: 1000, lastDate: DateTime.now());
+---
+### 115 | Insights | Algorithm module
+src: lib/13_smart_features/insights.dart
+symbol: generateInsights, InsightCard
+origin: NEW
+desc: Short, ranked sentences generated from the user's own numbers ("23% more than last week").
+use: Weekly reviews, analytics screens, coaching apps
+in: generateInsights(days, config: InsightConfig(metric, unit, higherIsBetter, goalPerDay, …), now)
+out: [Insight(id, title, message, tone, importance)]; InsightCard widget
+deps: Flutter (InsightCard); logic pure Dart
+integ: dailySeries → generateInsights → InsightCards (optionally AiAssistant.rephrase with number check)
+cx: Low
+defend: Statistics that pass a configured threshold, poured into templates — every number in the text comes from the data
+tests: test/13_smart_features/analytics_and_engagement_test.dart :: group:insights
+status: full
+edge: < minDays → one "Keep logging"; higherIsBetter false flips tones
+limits: English templates; a forgotten log looks like a zero
+example:
+for (final i in generateInsights(days, config: const InsightConfig(metric: 'study time', unit: 'min'), now: now)) InsightCard(insight: i)
+---
+### 116 | Automation Rules | Algorithm module
+src: lib/13_smart_features/automation.dart
+symbol: AutomationEngine
+origin: NEW
+desc: "When event X and condition Y, do actions Z" rules (JSON) run by a small engine with cooldowns and a log.
+use: Award XP on completion, budget alerts, restock reminders, flag low grades
+in: AutomationRule(id, name, trigger, when, actions, enabled, cooldown) / fromJson; AutomationEngine(rules, handlers); handle(AppEvent)
+out: [AutomationRun] + engine.log
+deps: Pure Dart
+integ: Call engine.handle after writes; handlers call your services
+cx: Medium
+defend: Rules are data and toggleable; one failing handler is logged and doesn't stop the others
+tests: test/13_smart_features/analytics_and_engagement_test.dart :: group:AutomationEngine
+status: full
+edge: Cooldown suppresses repeats; missing handler logged as an error
+limits: In-process only (runs while the app is open); no loop protection if handlers emit events
+example:
+await engine.handle(AppEvent('item_used', {'name': 'Milk', 'remaining': 1}));
+---
+### 117 | Smart Scheduling | Algorithm module
+src: lib/13_smart_features/smart_scheduling.dart
+symbol: scheduleTasks, findFreeSlots
+origin: NEW
+desc: Finds free time between events and places tasks by deadline and priority, explaining what didn't fit.
+use: Study planners, auto-planning to-dos, shift slotting, "first time we're all free"
+in: scheduleTasks(tasks: [SchedulableTask(id, duration, deadline, priority, earliestStart)], busy, from, until, hours, buffer); findFreeSlots; findConflicts; firstCommonSlot
+out: ScheduleResult(placed [(task, slot)], unplaced [(task, reason)])
+deps: Pure Dart
+integ: Busy slots from your events → scheduleTasks → AgendaCalendar
+cx: Medium
+defend: Greedy, earliest-deadline-first — fast, predictable and explainable; not claimed optimal
+tests: test/13_smart_features/analytics_and_engagement_test.dart :: group:smart scheduling
+status: full
+edge: Task longer than a working day; deadline already passed; buffer between tasks
+limits: No task splitting; local time only
+example:
+final plan = scheduleTasks(tasks: tasks, busy: events, from: now, until: now.add(const Duration(days: 7)));
+---
+### 118 | Gamification | Algorithm module
+src: lib/13_smart_features/gamification.dart
+symbol: LevelCurve, AchievementBadge, leaderboard
+origin: NEW
+desc: XP with a level curve, badges unlocked by JSON rules, fair leaderboard ranks, challenges, plus XP bar and badge grid widgets.
+use: Habit, study, fitness, volunteering, recycling apps
+in: LevelCurve(baseXp, growth); XpRules(points, streak bonus); AchievementBadge.fromJson; newlyUnlocked(badges, stats, alreadyEarned); leaderboard(entries, scoreOf); Challenge
+out: Level progress, XP, unlocked badges, ranks; XpProgressBar, BadgeGrid
+deps: Flutter (widgets); logic pure Dart
+integ: Award XP in automation handlers; call newlyUnlocked after stat changes and celebrate
+cx: Low
+defend: Rules and formulas, not randomness; standard competition ranking (1, 2, 2, 4) is fair to ties
+tests: test/13_smart_features/analytics_and_engagement_test.dart :: group:gamification
+status: full
+edge: Streak bonus capped; expired vs completed challenges
+limits: Client-side XP can be cheated — compute server-side for competitive boards
+example:
+final progress = const LevelCurve().progressFor(totalXp);   // level, xpIntoLevel, xpNeeded
+---
+### 119 | Activity Timeline | UI component
+src: lib/13_smart_features/activity_timeline.dart
+symbol: ActivityTimeline, groupActivityByDay
+origin: NEW
+desc: Chronological feed grouped under Today / Yesterday / weekday / date with a connecting line.
+use: History, shared-space feeds, order tracking, notification centres
+in: ActivityTimeline(events: [ActivityEvent(id, title, at, subtitle, icon, color, type)], onTap, now)
+out: Grouped feed
+deps: Flutter only
+integ: Create events from your writes or AutomationEngine.log
+cx: Low
+defend: Grouping is a pure tested function; labels match relativeDayLabel
+tests: test/13_smart_features/analytics_and_engagement_test.dart :: group:activity timeline
+status: full
+edge: Other years show the year
+limits: Renders all events (paginate long histories)
+example:
+ActivityTimeline(events: [ActivityEvent(id: '1', title: 'Completed "Essay"', at: now, icon: Icons.check_circle)])
+---
+### 120 | Contextual Actions | Algorithm module
+src: lib/13_smart_features/contextual_actions.dart
+symbol: ContextualActionEngine, contextFacts
+origin: NEW
+desc: Suggests the 1–3 shortcuts that make sense now (time of day plus app facts), with dismissal cooldowns.
+use: Home screens, quick-add bars, smart reminders
+in: ContextualAction.fromJson({id, label, icon, priority, when}); contextFacts(now, extra); engine.suggest(facts); dismiss(id)
+out: Ordered actions; ContextualActionBar chips
+deps: Flutter (bar); logic pure Dart
+integ: Add facts from your data (low stock, minutes today); map action ids to navigation
+cx: Low
+defend: Rule-based and explainable; dismissals hidden for a cooldown so suggestions don't nag
+tests: test/13_smart_features/context_and_sync_test.dart :: group:contextual actions
+status: full
+edge: Ties keep list order; part of day boundaries at 5/12/17/22
+limits: Only as smart as the facts you pass; dismissals in memory unless persisted
+example:
+ContextualActionBar(actions: engine.suggest(contextFacts(DateTime.now(), {'lowStock': true})), onSelected: run)
+---
+### 121 | Personalization | Algorithm module
+src: lib/13_smart_features/personalization.dart
+symbol: PreferenceProfile
+origin: NEW
+desc: Learns preferences from interactions with time decay and reorders content; learns the user's active hour.
+use: Feeds, catalogues, "your subjects first", reminder timing
+in: record(key, weight, at); affinity(key); topKeys(); orderByAffinity(items, keysOf); recordActiveAt; preferredHour(minSamples); toJson/fromJson; reset
+out: Ordered items, top keys, preferred hour
+deps: Pure Dart
+integ: Record on taps/favourites; persist JSON with PrefsStore; show topKeys in settings with Reset
+cx: Low
+defend: Exponential decay (half-life) favours recent behaviour; transparent and resettable, on-device only
+tests: test/13_smart_features/context_and_sync_test.dart :: group:PreferenceProfile
+status: full
+edge: Corrupt JSON → empty profile; ties keep order; too few samples → no preferred hour
+limits: Filter bubbles; single device unless synced
+example:
+final feed = profile.orderByAffinity(recipes, (r) => r.tags);
+---
+### 122 | Accessibility | Accessibility
+src: lib/13_smart_features/accessibility.dart
+symbol: AccessibilityScope, meetsWcag
+origin: NEW
+desc: WCAG contrast checks, an in-app accessibility settings scope, screen-reader announcements and 48×48 tap targets.
+use: Every app — especially for older or low-vision users
+in: contrastRatio, meetsWcag(fg, bg, largeText, level), readableOn(bg); AccessibilityPreferences(textScale, boldText, reduceMotion, highContrast); AccessibilityScope; announce(context, message); AccessibleTapTarget(label, onTap, child)
+out: Ratios/bools; MediaQuery/Theme overrides; announcements
+deps: Flutter only
+integ: Wrap MaterialApp.builder's child in AccessibilityScope; label icon buttons
+cx: Low
+defend: WCAG 2.x formulas; device settings still win when stronger; testable with flutter_test's accessibility guidelines
+tests: test/13_smart_features/context_and_sync_test.dart :: group:accessibility
+status: full
+edge: Text scale clamped 0.8–2.5
+limits: High contrast regenerates only colorScheme; contrast maths assumes opaque colours
+example:
+MaterialApp(builder: (context, child) => AccessibilityScope(preferences: prefs, child: child!))
+---
+### 123 | Voice Commands | Device feature
+src: lib/13_smart_features/voice_input.dart
+symbol: VoiceCommandParser, parseNaturalTime, FakeSpeechInput
+origin: NEW
+desc: Speech-to-text behind an interface (device engine + labelled fake), a rule-based command parser with natural-time understanding, and a mic button.
+use: Hands-busy apps, quick capture, accessibility, voice search
+in: VoiceCommandParser([VoiceIntent('add_task', ['remind me to {title}'])]).parse(text, now); parseNaturalTime(text, now); VoiceInputButton(speech, onResult, onPartial)
+out: VoiceCommand(intent, slots, at, hasTime) or null
+deps: speech_to_text, flutter_riverpod
+integ: Android RECORD_AUDIO + RecognitionService query; iOS microphone and speech usage strings
+cx: Medium
+defend: Words come from the OS recogniser (ML in the OS); meaning comes from rules you can read and test — predictable and offline
+tests: test/13_smart_features/context_and_sync_test.dart :: group:voice input
+status: partial+external | parser, button and fake tested; the device recogniser needs a microphone and permissions
+edge: "at 1"–"at 7" assumed PM; a time already passed today means tomorrow; unmatched phrases return null
+limits: English phrases only; always keep a keyboard path
+example:
+final cmd = const VoiceCommandParser([VoiceIntent('add', ['add {item}'])]).parse('add milk tomorrow at 5pm', now: DateTime.now());
+---
+### 124 | Offline-First Repository | Sync module
+src: lib/13_smart_features/offline_first_repository.dart
+symbol: OfflineFirstRepository
+origin: NEW
+desc: Local-first Repository with a durable write queue and push/pull sync using last-write-wins in both directions.
+use: Field work, inspections, clinics, poor connectivity
+in: OfflineFirstRepository(name, local, remote, queue, idOf, updatedAtOf, toJson, fromJson, isOnline, userId, pruneMissing, isPermanentError); sync()
+out: Instant local reads/writes; SyncReport(pushed, pulled, removed, dropped, pending, skippedOffline, error)
+deps: sqflite (via OfflineQueue)
+integ: local = SqfliteRepository, remote = SupabaseRepository; sync on reconnect/resume/pull-to-refresh
+cx: High
+defend: Matches Flutter's documented offline-first pattern; a newer server copy beats a queued push; unsent edits are never overwritten by a pull; overlapping syncs coalesce (bug found by tests)
+tests: test/13_smart_features/context_and_sync_test.dart :: group:OfflineFirstRepository
+status: partial+external | sync logic tested with in-memory SQLite and a flaky fake remote; needs a backend and does not run on the web (sqflite)
+edge: Permanent errors dropped and reported; pruneMissing deletes items removed elsewhere
+limits: Whole-item last-write-wins (field edits can be lost); pulls everything; device clocks can be wrong
+example:
+final report = await notes.sync();   // report.pushed, report.pending, report.dropped
+---
+### 125 | Real-Time Collaboration | Real-time module
+src: lib/13_smart_features/realtime_collaboration.dart
+symbol: CollaborativeDocument, LwwMap
+origin: NEW
+desc: A shared key → value document that converges on every device despite late, reordered or duplicated messages (LWW-map CRDT).
+use: Shared shopping/packing lists, family boards, live scoreboards, collaborative checklists
+in: CollaborativeDocument(replicaId, transport); connect(), set(key, value), remove(key), values, changes, exportState/importState; transports SupabaseBroadcastTransport / InMemoryCollabHub
+out: Live map of values; change stream
+deps: supabase_flutter (broadcast transport)
+integ: One key per item; persist exportState() — broadcast keeps no history
+cx: High
+defend: Lamport counter + replica id gives every device the same winner without a server; tombstones stop deleted keys resurrecting; tested with reversed and duplicated delivery
+tests: test/13_smart_features/context_and_sync_test.dart :: group:real-time collaboration
+status: partial+external | CRDT, protocol and in-memory hub tested; the Supabase transport needs a project with Realtime
+edge: Late joiners catch up via hello → state; same counter → higher replica id wins
+limits: Per-key granularity (not text editing); tombstones never garbage-collected
+example:
+await doc.set('item:milk', {'title': 'Milk', 'done': false});
+---
+### 126 | AI Text Client | AI module
+src: lib/14_ai/ai_text_client.dart
+symbol: EdgeFunctionAiClient, FakeAiTextClient
+origin: NEW
+desc: One interface for "prompt in, text out", calling your own server function (key stays server-side), with a scripted fake.
+use: Any AI text feature
+in: complete(AiRequest(prompt, system, maxTokens, json))
+out: Future<String> or EdgeFunctionFailure
+deps: supabase_flutter (via EdgeFunctionClient), flutter_riverpod
+integ: Override aiTextClientProvider with EdgeFunctionAiClient(EdgeFunctionClient.supabase(client)); FakeAiTextClient for tests/demos
+cx: Medium
+defend: The model API key never ships in the app; errors arrive as stable codes; the fake is labelled as scripted, not a model
+tests: test/14_ai/ai_test.dart :: group:EdgeFunctionAiClient
+status: partial+external | request/envelope tested with a fake invoker; needs the deployed ai-complete function and a Gemini key
+edge: Server error envelopes become EdgeFunctionFailure
+limits: No streaming
+example:
+final text = await ref.read(aiTextClientProvider).complete(const AiRequest(prompt: 'Summarise: …'));
+---
+### 127 | AI Assistant (with rule-based fallbacks) | AI module
+src: lib/14_ai/ai_assistant.dart
+symbol: AiAssistant, extractiveSummary, keywordClassify
+origin: NEW
+desc: Summarise, classify, extract fields and rephrase — each with validated output, an honest source label and a rule-based fallback.
+use: Free-text input the rules can't parse; friendlier wording of rule-based insights
+in: summarize(text, maxSentences); classify(text, labels, fallbackLabel); extractFields(text, fields); rephrase(fact, tone)
+out: AiResult(value, source: ai | fallback, error)
+deps: Pure Dart over AiTextClient
+integ: AiAssistant(ref.read(aiTextClientProvider), enabled: settings.ai); show an "AI" chip only when !usedFallback
+cx: Medium
+defend: Output must be one of your labels / valid JSON with your keys / keep every number — otherwise the rule-based result is used; user text is wrapped as data
+tests: test/14_ai/ai_test.dart :: group:AiAssistant.summarize ; test/14_ai/ai_test.dart :: group:AiAssistant.classify ; test/14_ai/ai_test.dart :: group:AiAssistant.extractFields ; test/14_ai/ai_test.dart :: group:AiAssistant.rephrase ; test/14_ai/ai_test.dart :: group:rule-based helpers
+status: full | tested with FakeAiTextClient; quality of real model output is not tested
+edge: Disabled AI never calls the client; code-fenced JSON accepted
+limits: Prompt injection reduced, not prevented — never let model output trigger actions without confirmation
+example:
+final category = await ai.classify(note, labels: {'food': ['lunch'], 'transport': ['bus']}, fallbackLabel: 'other');
+---
+### 128 | ai-complete Edge Function | AI module
+src: supabase/functions/ai-complete/index.ts
+symbol: handle
+origin: NEW
+desc: Server function that verifies the user, validates input, calls Gemini with a server-held key and returns the standard envelope.
+use: Behind EdgeFunctionAiClient
+in: POST {prompt, system?, maxTokens?, json?} with the user's JWT
+out: {ok: true, data: {text}} or {ok: false, error: {code, message, retryable}}
+deps: Deno (no imports), Gemini API
+integ: supabase secrets set GEMINI_API_KEY=…; supabase functions deploy ai-complete
+cx: Medium
+defend: Dependency-free and injectable (fetch, env), so it is tested offline with Deno; maps 429/5xx/safety blocks to stable codes
+tests: supabase/functions/ai-complete/index_test.ts :: all
+status: partial+external | 6 Deno tests with a fake fetch; a live Gemini call is not tested; needs a Supabase project and key
+edge: Missing secret → not_configured; empty prompt → invalid_request before any model call; token cap 1024
+limits: No per-user usage caps or moderation (add before launch); CORS allows any origin (JWT still required)
+example:
+// From Flutter: EdgeFunctionAiClient(EdgeFunctionClient.supabase(client)).complete(const AiRequest(prompt: 'Hi'));
+---
+### 129 | PrefsRepository | Persistence module
+src: lib/09_persistence/prefs_repository.dart
+symbol: PrefsRepository
+origin: NEW
+desc: Repository<T> stored as one JSON list in shared preferences — real persistence on every platform, including the web, with zero setup.
+use: Prototypes and small collections (to-dos, favourites, logs) that must survive restarts, especially on the web
+in: PrefsRepository(key, idOf, toJson, fromJson, prefs?)
+out: Repository<T> (getAll, getById, watchAll, save, delete) + clear()
+deps: shared_preferences
+integ: Default storage in the starter template; swap to SqfliteRepository/SupabaseRepository in one provider
+cx: Low
+defend: Fills the gap sqflite leaves on the web; uses the non-legacy SharedPreferencesAsync API; tolerant of corrupt data
+tests: test/09_persistence/prefs_repository_test.dart :: all
+status: full
+edge: Updates keep position; unreadable items skipped and logged; corrupt JSON → empty list
+limits: Small data only — rewrites the whole list per save, and shared_preferences "must not be used for storing critical data"
+example:
+final notes = PrefsRepository<Note>(key: 'notes', idOf: (n) => n.id, toJson: (n) => n.toJson(), fromJson: Note.fromJson);

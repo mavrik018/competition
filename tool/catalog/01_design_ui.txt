@@ -1,0 +1,361 @@
+### 1 | Design tokens | Design system
+src: lib/01_design_system/app_tokens.dart
+symbol: Gap
+origin: KA, TD
+desc: One spacing, radius, padding, motion and shadow scale shared by every component.
+use: Every app — use instead of magic numbers for padding, gaps, radii and durations
+in: none (constants)
+out: Gap.* / Radii.* doubles, Insets.* EdgeInsets, Motion.* durations and curves, AppShadows.soft/lifted/glow(Color)
+deps: Flutter only
+integ: Import app_tokens.dart and use the constants; no setup
+cx: Low
+defend: A single scale keeps spacing consistent and makes a redesign a one-file change; plain constants (no screen scaling) respect the user's text size
+tests: test/01_design_system/design_system_test.dart :: name:tokens
+status: full
+edge: Cookly's out-of-order scale (sm > base) was corrected; the test asserts the scale is monotonic
+limits: Not a full design-token pipeline (no JSON export to designers)
+example:
+Padding(padding: Insets.page, child: Column(children: [title, const SizedBox(height: Gap.md), body]))
+---
+### 2 | AppPalette + SemanticColors | Design system
+src: lib/01_design_system/app_palette.dart
+symbol: AppPalette
+origin: SM, KA, CP, TD
+desc: Turns 1–4 brand colours into accessible light and dark colour schemes, plus success / warning / info colours.
+use: Branding an app quickly; any app that needs dark mode or status colours
+in: AppPalette(primary, secondary?, tertiary?, error?, success, warning, info); presets studyBlue, kitchenWarm, coupleNavy, taskIndigo
+out: .scheme(Brightness) → ColorScheme; .semantic(Brightness) → SemanticColors; SemanticColors.of(context)
+deps: Flutter only
+integ: Pass the palette to AppTheme.build; read status colours with SemanticColors.of(context).success
+cx: Low
+defend: Seeded ColorScheme gives correct tonal roles and contrast in both modes; a ThemeExtension adds the status colours Material lacks
+tests: test/01_design_system/design_system_test.dart :: group:AppPalette ; test/01_design_system/design_system_test.dart :: group:SemanticColors
+status: full
+edge: Light mode pins the exact brand colour; dark mode derives a lighter primary for contrast; of() falls back when the theme lacks the extension
+limits: Brand colours with poor contrast are not auto-corrected in light mode
+example:
+const brand = AppPalette(primary: Color(0xFF0B6E4F), secondary: Color(0xFFF2A541));
+final ok = SemanticColors.of(context).success;
+---
+### 3 | AppTypography | Design system
+src: lib/01_design_system/app_typography.dart
+symbol: AppTypography
+origin: SM
+desc: The Apple HIG type ramp mapped onto Material TextTheme roles, plus tabular (fixed-width) digits.
+use: Consistent text sizes; timers and counters that must not jitter
+in: textTheme(color:, fontFamily:); tabular(TextStyle)
+out: TextTheme; TextStyle with tabular figures
+deps: Flutter only
+integ: Used by AppTheme; read styles via Theme.of(context).textTheme
+cx: Low
+defend: One role → one size removes hundreds of ad-hoc font overrides; tabular figures stop numbers shifting as they change
+tests: test/01_design_system/design_system_test.dart :: group:AppTypography
+status: full
+edge: Font family is optional (google_fonts deliberately not bundled)
+limits: No responsive type scale; relies on the OS text-size setting
+example:
+Text(timer.formatted, style: AppTypography.tabular(Theme.of(context).textTheme.displayLarge!))
+---
+### 4 | AppTheme.build | Design system
+src: lib/01_design_system/app_theme.dart
+symbol: AppTheme
+origin: KA, SM
+desc: A complete Material 3 theme (buttons, inputs, cards, sheets, dialogs, snackbars, navigation bar) from a palette.
+use: The first line of every app
+in: (AppPalette, Brightness, {fontFamily, pageTransitionsTheme})
+out: ThemeData
+deps: Flutter only
+integ: MaterialApp(theme: AppTheme.build(p, Brightness.light), darkTheme: AppTheme.build(p, Brightness.dark))
+cx: Low
+defend: One data-driven function replaces 300–400 lines of theme literals per mode; every toolkit component reads the theme, so changing the palette restyles everything
+tests: test/01_design_system/design_system_test.dart :: group:AppTheme.build
+status: full
+edge: Both brightnesses are checked for completeness; parameters pass through
+limits: Opinionated component shapes; override individual component themes with copyWith
+example:
+MaterialApp(theme: AppTheme.build(AppPalette.studyBlue, Brightness.light), darkTheme: AppTheme.build(AppPalette.studyBlue, Brightness.dark))
+---
+### 5 | ThemeModeController | State module
+src: lib/01_design_system/theme_mode_controller.dart
+symbol: themeModeProvider
+origin: SM
+desc: A persisted light / dark / system preference as a Riverpod Notifier.
+use: Any app with a theme switch in settings
+in: setMode(ThemeMode), toggle(platformBrightness)
+out: ThemeMode state, saved to SharedPreferences
+deps: flutter_riverpod, shared_preferences
+integ: themeMode: ref.watch(themeModeProvider) inside a ProviderScope; SettingsChoice<ThemeMode> to change it
+cx: Low
+defend: A flag stops the slow initial read overwriting a choice the user made meanwhile; "system" is kept as a real option, unlike a bool
+tests: test/01_design_system/theme_mode_controller_test.dart :: all
+status: full
+edge: Unknown stored values parse to null → system; save failures keep the mode for the session
+limits: Uses the legacy SharedPreferences API (works everywhere; slated for deprecation upstream)
+example:
+ref.read(themeModeProvider.notifier).setMode(ThemeMode.dark);
+---
+### 6 | Pressable | UI component
+src: lib/02_ui_elements/pressable.dart
+symbol: Pressable
+origin: KA, SM
+desc: Makes any custom card or row feel tappable: scales to 98% while pressed, optional dim, haptics.
+use: Custom cards, tiles and images that act as buttons
+in: child, onTap, onLongPress, scale, dimOnPress, haptic, semanticLabel
+out: Callbacks; button semantics only when interactive
+deps: Flutter only
+integ: Wrap the widget; pass onTap
+cx: Low
+defend: Consistent press feedback without ink on custom shapes; exposes button semantics only when it actually does something
+tests: test/02_ui_elements/basic_elements_test.dart :: group:Pressable
+status: full
+edge: Inert (no callbacks) → no button semantics
+limits: No ripple by design; use InkWell where Material feedback is expected
+example:
+Pressable(onTap: open, semanticLabel: 'Open recipe', child: RecipeCard(recipe))
+---
+### 7 | PrimaryButton | UI component
+src: lib/02_ui_elements/primary_button.dart
+symbol: PrimaryButton
+origin: SM, KA
+desc: Full-width call-to-action with loading, destructive, icon and disabled states.
+use: The main action of a screen (Save, Continue, Sign in)
+in: label, onPressed?, isLoading, destructive, icon, expand
+out: onPressed (ignored while loading)
+deps: Flutter only
+integ: Pair isLoading with an ActionController's state
+cx: Low
+defend: Keeps its enabled colour while loading so it doesn't look disabled, and blocks double submits; announced as a live region
+tests: test/02_ui_elements/basic_elements_test.dart :: group:PrimaryButton
+status: full
+edge: Destructive uses the error colour; null onPressed renders disabled
+limits: Single style; use AppButton (#75) for variants and sizes
+example:
+PrimaryButton(label: 'Save', isLoading: saving, onPressed: valid ? save : null)
+---
+### 8 | AppChip | UI component
+src: lib/02_ui_elements/app_chip.dart
+symbol: AppChip
+origin: KA
+desc: Tinted category/filter pill with a selected glow and per-chip colour.
+use: Categories, tags, quick filters, colour-coded labels
+in: label, icon, selected, onTap, color
+out: onTap
+deps: Flutter only (uses Pressable)
+integ: Use in a Wrap or horizontal list; SearchFilterBar uses it for filters
+cx: Low
+defend: Per-chip colour enables colour-coding; text colour adapts to the tint's brightness for contrast
+tests: test/02_ui_elements/basic_elements_test.dart :: group:AppChip
+status: full
+edge: Light tints get dark text when selected
+limits: No delete affordance (use InputChip for removable tags)
+example:
+AppChip(label: 'Vegan', selected: on, onTap: toggle, color: Colors.teal)
+---
+### 9 | SectionHeader | UI component
+src: lib/02_ui_elements/section_header.dart
+symbol: SectionHeader
+origin: KA
+desc: Small-caps section title with an optional icon and a "See all" action.
+use: Grouping content on dashboards and lists
+in: title, icon, actionLabel, onAction, padding
+out: onAction
+deps: Flutter only
+integ: Place above a section
+cx: Low
+defend: Marked as a semantic header so screen-reader users can jump between sections
+tests: test/02_ui_elements/basic_elements_test.dart :: name:SectionHeader
+status: full
+edge: Action hidden when no callback
+limits: Upper-cases the title (locale-sensitive languages may prefer not to)
+example:
+SectionHeader(title: 'Recent', actionLabel: 'See all', onAction: openAll)
+---
+### 10 | SearchField | UI component
+src: lib/02_ui_elements/search_field.dart
+symbol: SearchField
+origin: KA
+desc: Rounded search input with a clear (×) button that appears only while there is text.
+use: Any searchable list
+in: controller?, hintText, onChanged, onSubmitted, focusNode, trailing
+out: onChanged (with '' on clear)
+deps: Flutter only
+integ: Pair with Debouncer (#48) for search-as-you-type
+cx: Low
+defend: Owns a controller only when none is given and re-attaches when the parent swaps it (a common leak/bug)
+tests: test/02_ui_elements/basic_elements_test.dart :: group:SearchField
+status: full
+edge: Controller swapped at runtime is handled
+limits: No suggestions dropdown
+example:
+SearchField(onChanged: (q) => debouncer.run(() => search(q)))
+---
+### 11 | RadialGauge | Chart
+src: lib/02_ui_elements/radial_gauge.dart
+symbol: RadialGauge
+origin: SM
+desc: Progress ring with a centre label.
+use: Goals, completion, risk level, scores
+in: value 0..1, size, color?, trackColor?, strokeWidth, child, semanticLabel
+out: Painted ring; spoken percentage
+deps: Flutter only
+integ: Drop in with a fraction; put any widget in the centre
+cx: Low
+defend: CustomPainter instead of a chart package; FittedBox keeps long labels inside the ring
+tests: test/02_ui_elements/basic_elements_test.dart :: group:RadialGauge
+status: full
+edge: Values are clamped and NaN-safe
+limits: Single value; no segments
+example:
+RadialGauge(value: done / total, size: 120, child: Text('$done/$total'))
+---
+### 12 | Skeletons | Feedback
+src: lib/02_ui_elements/skeleton.dart
+symbol: SkeletonList
+origin: KA (rewritten)
+desc: Shimmering placeholders shaped like content.
+use: First load of lists and cards
+in: Shimmer(child), SkeletonBox(width, height, radius), SkeletonList(rows, rowHeight), SkeletonCardRow(height, cardWidth, cards)
+out: Animated placeholders
+deps: Flutter only
+integ: Pass as AsyncValueView(loading:)
+cx: Low
+defend: Replaces the shimmer package with one gradient sweep; one Shimmer per layout keeps the sweep in sync
+tests: test/02_ui_elements/basic_elements_test.dart :: name:Skeletons
+status: full
+edge: Renders and animates without errors
+limits: Shapes are generic; a precise skeleton needs custom boxes
+example:
+AsyncValueView(value: notes, loading: const SkeletonList(rows: 4), data: (n) => NotesList(n))
+---
+### 13 | FadeSlideIn / Stagger | Animation
+src: lib/02_ui_elements/fade_slide_in.dart
+symbol: FadeSlideIn
+origin: KA (rewritten)
+desc: Fade-and-rise entrance animation, staggered by index.
+use: Lists and dashboards appearing for the first time
+in: child, index, delayStep, duration, offset; Stagger(children, axis, spacing)
+out: Animated child
+deps: Flutter only
+integ: Wrap list items with their index
+cx: Low
+defend: Replaces flutter_animate; respects the OS reduce-motion setting and cancels its timer on dispose
+tests: test/02_ui_elements/basic_elements_test.dart :: group:FadeSlideIn
+status: full
+edge: Reduce motion shows content immediately; works in unbounded rows
+limits: Entrance only (no exit animation)
+example:
+for (var i = 0; i < items.length; i++) FadeSlideIn(index: i, child: ItemTile(items[i]))
+---
+### 14 | FlipCard | Animation
+src: lib/02_ui_elements/flip_card.dart
+symbol: FlipCard
+origin: SM
+desc: 3D front/back flip, controlled declaratively.
+use: Flashcards, reveal answers, card games
+in: front, back, showBack, onTap, duration
+out: onTap
+deps: Flutter only
+integ: Hold showBack in state; key each card by id
+cx: Low
+defend: Declarative (state says which side) rather than imperative; keying per card avoids animating the back over new content
+tests: test/02_ui_elements/interactive_elements_test.dart :: group:FlipCard
+status: full
+edge: Built with showBack: true starts on the back without animating
+limits: Horizontal flip only
+example:
+FlipCard(key: ValueKey(card.id), showBack: revealed, onTap: toggle, front: Text(card.q), back: Text(card.a))
+---
+### 15 | SwipeActionTile | UI component
+src: lib/02_ui_elements/swipe_action_tile.dart
+symbol: SwipeActionTile
+origin: TD
+desc: Swipe a row to reveal start/end actions; destructive actions collapse the row first.
+use: Lists with delete / complete / archive
+in: child, startAction?, endAction? (SwipeAction(icon, color, onTriggered, label, dismisses)), revealWidth, borderRadius
+out: onTriggered
+deps: Flutter only
+integ: Wrap list tiles; CrudListScreen uses it for delete
+cx: Low
+defend: Actions are also exposed as custom semantics actions, so screen-reader users can trigger them without swiping
+tests: test/02_ui_elements/interactive_elements_test.dart :: group:SwipeActionTile
+status: full
+edge: Short swipes snap back; a side without an action cannot be swiped
+limits: One action per side
+example:
+SwipeActionTile(endAction: SwipeAction(icon: Icons.delete, color: Colors.red, dismisses: true, onTriggered: delete), child: tile)
+---
+### 16 | ActivityHeatmap | Chart
+src: lib/02_ui_elements/activity_heatmap.dart
+symbol: ActivityHeatmap
+origin: SM
+desc: GitHub-style activity grid for any daily metric.
+use: Habits, study time, workouts, contributions
+in: values: Map<DateTime, num>, weeks, levelThresholds, color, tooltip, showLegend, today
+out: Grid with legend; helpers heatmapLevel, heatmapColumns, sumByDay
+deps: Flutter only
+integ: Aggregate with sumByDay, then pass the map
+cx: Low
+defend: Dates are built from y/m/d so DST changes cannot shift cells; thresholds make levels meaningful per metric
+tests: test/02_ui_elements/data_display_test.dart :: group:ActivityHeatmap helpers ; test/02_ui_elements/data_display_test.dart :: name:ActivityHeatmap draws
+status: full
+edge: DST transitions; several entries on one date are summed
+limits: Week starts Monday; no horizontal scrolling for very long ranges
+example:
+ActivityHeatmap(values: minutesByDay, levelThresholds: const [20, 60], weeks: 12)
+---
+### 17 | SimpleBarChart | Chart
+src: lib/02_ui_elements/simple_bar_chart.dart
+symbol: SimpleBarChart
+origin: NEW
+desc: Small bar chart with a target line and a highlighted bar.
+use: Weekly totals, goals vs actual
+in: data: List<BarDatum(label, value)>, target, highlightIndex, height, colours, valueFormatter
+out: Animated bars with per-bar semantics
+deps: Flutter only
+integ: Map your data to BarDatum
+cx: Low
+defend: Replaces fl_chart for seven bars; widget bars animate and are labelled for screen readers
+tests: test/02_ui_elements/data_display_test.dart :: group:SimpleBarChart
+status: full
+edge: chartMax adds headroom above the larger of data and target
+limits: No axes, touch tooltips or negative values
+example:
+SimpleBarChart(data: [for (final d in week) BarDatum(d.label, d.minutes)], target: 60, highlightIndex: todayIndex)
+---
+### 18 | SpinWheel | UI component
+src: lib/02_ui_elements/spin_wheel.dart
+symbol: SpinWheel
+origin: KA (bug fixed)
+desc: Decision / prize wheel with ticks and a settle callback.
+use: "What should we eat?", random pickers, gamified rewards
+in: slices: List<WheelSlice(label, color)>, controller (spinTo, spinRandom), onSettled(int), size, duration
+out: onSettled(index)
+deps: Flutter only
+integ: Create a SpinWheelController; call spinRandom(slices.length)
+cx: Low
+defend: Fixed a source bug — the end angle ignored the resting angle, so later spins stopped on a different slice than reported; 50 consecutive spins are tested
+tests: test/02_ui_elements/interactive_elements_test.dart :: group:SpinWheel maths ; test/02_ui_elements/interactive_elements_test.dart :: name:SpinWheel reports
+status: full
+edge: Slice 0 under the pointer at rest; consecutive spins
+limits: Equal-size slices only
+example:
+SpinWheel(slices: slices, controller: wheel, onSettled: (i) => pick(slices[i]))
+---
+### 19 | MarkdownView | UI component
+src: lib/02_ui_elements/markdown_view.dart
+symbol: MarkdownView
+origin: SM
+desc: Renders the Markdown subset AI replies and notes use, in the app's theme.
+use: AI answers, notes, help text
+in: data, selectable; markdownSpans(text, base, scheme)
+out: Styled widgets / TextSpans
+deps: Flutter only (uses the toolkit's Markdown parser)
+integ: Pass the reply text
+cx: Low
+defend: Shares one parser with the editor and exports, so what you write is what renders
+tests: test/02_ui_elements/data_display_test.dart :: group:MarkdownView ; test/02_ui_elements/data_display_test.dart :: name:markdownSpans
+status: full
+edge: Selectable mode wraps content in a SelectionArea
+limits: Subset only (no images, nested lists or HTML)
+example:
+MarkdownView(data: reply.text, selectable: true)

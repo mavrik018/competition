@@ -1,0 +1,153 @@
+### 100 | FileRules / sniffFileType | Device feature
+src: lib/12_common_features/file_rules.dart
+symbol: FileRules, sniffFileType
+origin: NEW
+desc: Checks a file's size, extension and actual content before upload.
+use: Avatar uploads, receipts, documents, any user file
+in: FileRules(maxBytes, allowedExtensions, checkContent).check(fileName, bytes); helpers extensionOf, mimeTypeFor, isImageFile, sniffFileType
+out: String? problem (null = OK); MIME type; detected type
+deps: Pure Dart
+integ: Call before StorageUploader.upload; show the problem with showError
+cx: Low
+defend: Content sniffing (magic bytes) catches a renamed .exe → .jpg that an extension check would accept
+tests: test/12_common_features/device_features_test.dart :: group:FileRules
+status: full
+edge: Empty files rejected; detects JPEG, PNG, GIF, WebP, PDF, ZIP
+limits: Not malware scanning; validate again on the server
+example:
+final problem = const FileRules(maxBytes: 5 * 1024 * 1024, allowedExtensions: {'jpg', 'png', 'pdf'}).check(file.name, file.bytes);
+---
+### 101 | MediaPicker | Device feature
+src: lib/12_common_features/media_picker.dart
+symbol: MediaPicker, FakeMediaPicker
+origin: NEW
+desc: Pick a photo (camera or gallery) or files behind one interface, with a labelled fake for tests.
+use: Profile photos, receipts, attachments, document import
+in: pickImage(source: MediaSource.camera/gallery, maxWidth, imageQuality); pickFiles(allowedExtensions, multiple)
+out: PickedMedia(name, bytes, path) / list; null when cancelled
+deps: image_picker, file_picker, flutter_riverpod
+integ: ref.read(mediaPickerProvider); override with FakeMediaPicker in tests; iOS needs NSCameraUsageDescription / NSPhotoLibraryUsageDescription
+cx: Medium
+defend: The interface keeps plugins out of business logic; the fake makes flows testable — and is documented as not production behaviour
+tests: test/12_common_features/device_features_test.dart :: name:FakeMediaPicker
+status: partial+external | fake and filtering tested; DeviceMediaPicker needs a device and iOS usage strings
+edge: Cancel → null; extension filtering on files
+limits: Bytes are read into memory (large videos are not a fit)
+example:
+final photo = await ref.read(mediaPickerProvider).pickImage(source: MediaSource.camera, maxWidth: 1600);
+---
+### 102 | QR codes | Device feature
+src: lib/12_common_features/qr_code.dart
+symbol: parseQr, QrCodeView
+origin: NEW
+desc: Typed QR payloads (URL, Wi-Fi, email, phone, SMS, geo, contact, app link, text) with encode/parse, a QR renderer and a scanner view.
+use: Event check-in, sharing profiles, Wi-Fi, deep links, inventory
+in: QrWifi(ssid, password).encode(); parseQr(raw, appSchemes); QrCodeView(data, size); QrScannerView(onScanned, appSchemes, onManualEntry)
+out: String payloads; QrPayload objects; widgets
+deps: mobile_scanner, pretty_qr_code
+integ: Show QrCodeView(data: payload.encode()); handle QrScannerView.onScanned by payload type
+cx: Medium
+defend: Encode/parse are pure and round-trip tested; the scanner de-duplicates repeat reads and offers manual entry when the camera is unavailable
+tests: test/12_common_features/device_features_test.dart :: group:QR payloads
+status: partial+external | payloads and rendering tested; scanning needs a camera (and camera permission)
+edge: Wi-Fi special characters escaped; unknown formats → QrText
+limits: Scanner: Android, iOS, web, macOS only
+example:
+QrCodeView(data: const QrWifi(ssid: 'Hackathon', password: 'letmein').encode(), size: 200)
+---
+### 103 | OCR (TextRecognizerService + extractFromText) | Device feature
+src: lib/12_common_features/ocr.dart
+symbol: extractFromText, FakeTextRecognizer
+origin: NEW
+desc: On-device text recognition (ML Kit) behind an interface, plus rule-based extraction of totals, amounts, dates, emails, phones and URLs.
+use: Receipt scanning, business cards, document capture
+in: recognizeFile(path); extractFromText(text, totalKeywords, monthFirst)
+out: String text; ExtractedText(amounts, total, dates, emails, phones, urls)
+deps: google_mlkit_text_recognition
+integ: Pick a photo (#101) → recognizeFile → extractFromText → prefill a form for the user to confirm
+cx: Medium
+defend: Recognition is on-device ML (no key, no network); everything after is plain regex rules, tested on sample receipts — the honest split between ML and rules
+tests: test/12_common_features/device_features_test.dart :: group:OCR extraction (rule-based)
+status: partial+external | extraction rules and the fake tested; ML Kit needs Android/iOS (minSdk 21+, iOS 15.5+)
+edge: Thousands separators; month-first dates; fallback total when no keyword
+limits: Common US/EU receipt formats only; not available on web/desktop
+example:
+final text = await recognizer.recognizeFile(photo.path!);
+final total = extractFromText(text).total;
+---
+### 104 | Location (LocationService, Geofence, nearestPlaces) | Device feature
+src: lib/12_common_features/location_service.dart
+symbol: Geofence, FakeLocationService
+origin: NEW
+desc: Current position and position stream behind an interface, geofences, and nearest-places ranking.
+use: Nearby services, check-in at a place, delivery radius, field work
+in: currentPosition(), positions(distanceFilterMeters); Geofence(center, radiusMeters).contains(p); nearestPlaces(items, from, positionOf, maxKm, limit)
+out: GeoPoint; Stream<GeoPoint>; bool; ranked [(item, km)]
+deps: geolocator
+integ: ref.read(locationServiceProvider); Android ACCESS_FINE_LOCATION, iOS NSLocationWhenInUseUsageDescription
+cx: Medium
+defend: Permission flow and timeouts handled in one place (falls back to last known position); geometry is pure and tested
+tests: test/12_common_features/device_features_test.dart :: group:Location
+status: partial+external | geofence/nearest and the fake tested; GPS needs a device and permissions
+edge: Permission denied / service off → typed LocationException
+limits: Straight-line distance, not routing
+example:
+final here = await ref.read(locationServiceProvider).currentPosition();
+final near = nearestPlaces(places, from: here, positionOf: (p) => p.point, maxKm: 5);
+---
+### 105 | ShareService | Device feature
+src: lib/12_common_features/share_service.dart
+symbol: ShareService, FakeShareService
+origin: NEW
+desc: Share text or a file through the system share sheet, behind an interface with a recording fake.
+use: Exporting CSV/PDF, sharing results, inviting friends
+in: shareText(text, subject, origin); shareFile(name, bytes, mimeType, text, origin)
+out: ShareOutcome
+deps: share_plus
+integ: ref.read(shareServiceProvider).shareFile(name: 'report.csv', bytes: utf8Bytes(csv, bom: true), mimeType: 'text/csv')
+cx: Low
+defend: Testable seam over a platform sheet; the fake records calls for assertions
+tests: test/12_common_features/device_features_test.dart :: name:FakeShareService
+status: partial | fake tested; the system share sheet needs a device
+edge: On iPad pass an origin rect
+limits: Outcome reporting varies by platform
+example:
+await ref.read(shareServiceProvider).shareText('My score: 42', subject: 'Results');
+---
+### 106 | Data export (CSV, JSON, PDF) | Utility
+src: lib/12_common_features/data_export.dart
+symbol: toCsv, buildPdfReport
+origin: NEW
+desc: RFC 4180 CSV writer/reader, pretty JSON, UTF-8 bytes (with BOM for Excel), and a paginated PDF report.
+use: "Export my data", reports for teachers/managers, backups
+in: toCsv(rows, separator); parseCsv(text); csvToMaps(rows); toPrettyJson(value); utf8Bytes(text, bom); buildPdfReport(title, subtitle, summary, headers, rows, font, pageFormat)
+out: String / List / Uint8List
+deps: pdf
+integ: Pair with ShareService (#105) to hand the file to the user
+cx: Low
+defend: Proper quoting (commas, quotes, newlines) and a BOM so Excel opens UTF-8 correctly; PDF paginates long tables
+tests: test/12_common_features/device_features_test.dart :: group:Data export
+status: full
+edge: parseCsv handles BOM, LF and semicolons
+limits: Built-in PDF font is Latin-only (pass a TTF font otherwise)
+example:
+final csv = toCsv([['Date', 'Amount'], ['2026-03-01', 12.5]]);
+---
+### 107 | Daily reminders (scheduleDaily / nextDailyOccurrence) | Device feature
+src: lib/12_common_features/reminder_scheduler.dart
+symbol: nextDailyOccurrence
+origin: NEW (extends #71)
+desc: A reminder that repeats every day at a time, plus the pure "next occurrence" calculation.
+use: Habit and study reminders, medication times
+in: scheduleDaily(key, title, body, hour, minute, payload); nextDailyOccurrence(hour, minute, now)
+out: bool; DateTime
+deps: flutter_local_notifications, timezone
+integ: Pick the time from PreferenceProfile.preferredHour() (#121); Android needs core library desugaring
+cx: Medium
+defend: The time maths is a pure, tested function; delivery is the plugin's job
+tests: test/12_common_features/device_features_test.dart :: name:nextDailyOccurrence
+status: partial+external | next-occurrence maths tested; delivery needs a device and notification permission
+edge: Time already passed today → tomorrow
+limits: Inexact on Android without the exact-alarm permission
+example:
+await reminders.scheduleDaily(key: 'water', title: 'Drink water', body: 'Stay hydrated', hour: 10, minute: 0);

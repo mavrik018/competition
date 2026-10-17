@@ -1,0 +1,20 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # Copied into new apps by tool/create_app.dart and analyzed there.
+    - templates/**
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    - avoid_print
+    - prefer_const_constructors
+    - prefer_final_locals
+    - require_trailing_commas
+    - unawaited_futures
+    # Folder names are numbered (01_design_system, ...) on purpose so the
+    # toolkit reads in order. File names still follow snake_case.
+    - file_names

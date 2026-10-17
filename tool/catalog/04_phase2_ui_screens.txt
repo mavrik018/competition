@@ -1,0 +1,474 @@
+### 75 | AppButton / SocialSignInButton | UI component
+src: lib/02_ui_elements/app_buttons.dart
+symbol: AppButton, SocialSignInButton
+origin: NEW
+desc: One button for every case — filled, tonal, outlined, text, destructive — in three sizes, with loading; plus "Continue with Apple/Google/email/phone".
+use: Every screen's actions
+in: label, onPressed, variant (ButtonVariant), size (ButtonSize small 36 / medium 44 / large 52), icon, isLoading, expand; SocialSignInButton(provider, onPressed, isLoading)
+out: onPressed (ignored while loading)
+deps: Flutter only
+integ: Replace ad-hoc buttons; pair isLoading with ActionController
+cx: Low
+defend: Loading keeps the enabled colours (IgnorePointer + no-op handler) so a busy button never looks disabled, and blocks double taps
+tests: test/02_ui_elements/new_elements_test.dart :: group:AppButton
+status: full
+edge: Null onPressed renders disabled; sizes guarantee minimum heights
+limits: Social buttons approximate brand guidelines with theme colours — check Apple/Google rules before a store release
+example:
+AppButton(label: 'Delete', variant: ButtonVariant.destructive, icon: Icons.delete, onPressed: confirmDelete)
+---
+### 76 | Text inputs | Form
+src: lib/02_ui_elements/text_inputs.dart
+symbol: PinCodeField, AppTextField, TagInputField
+origin: NEW
+desc: AppTextField (required marker, clear button), PasswordField (show/hide), PinCodeField (OTP boxes), TagInputField (chips with suggestions).
+use: Forms, OTP entry, tagging
+in: AppTextField(label, isRequired, clearable, validator, …); PinCodeField(length, onCompleted); TagInputField(tags, onChanged, suggestions, maxTags)
+out: Text / code / tag list callbacks
+deps: Flutter only
+integ: Inside a Form; PinCodeField powers OtpVerificationScreen
+cx: Low
+defend: PinCodeField is one hidden TextField behind the boxes, so paste, SMS autofill (oneTimeCode) and screen readers work
+tests: test/02_ui_elements/new_elements_test.dart :: group:Text inputs
+status: full
+edge: Tags de-duplicate case-insensitively; Backspace in an empty tag field removes the last tag
+limits: PinCodeField is digits-only
+example:
+PinCodeField(length: 6, onCompleted: verify)
+---
+### 77 | Cards (StatCard, ActionCard, ImageCard) | UI component
+src: lib/02_ui_elements/cards.dart
+symbol: StatCard
+origin: NEW
+desc: KPI card with a coloured change indicator, a call-to-action card and an image card with a placeholder.
+use: Dashboards, analytics, menus, catalogues
+in: StatCard(label, value, icon, delta as a fraction (0.12 = +12%), higherIsBetter, caption, onTap); ActionCard(title, subtitle, icon, onTap); ImageCard(title, image, badge)
+out: Cards; StatCard reads as one sentence to screen readers
+deps: Flutter only
+integ: Grid them with ResponsiveGrid; DashboardTemplate takes them as stats
+cx: Low
+defend: higherIsBetter flips the colour (spending up = red), so the colour carries meaning, not decoration
+tests: test/02_ui_elements/new_elements_test.dart :: group:Cards
+status: full
+edge: delta 0 or null → neutral; missing image → icon placeholder
+limits: delta is a fraction — passing 12 shows "+1200%" (this mistake was caught in the showcase)
+example:
+StatCard(label: 'Spending', value: '€184', icon: Icons.euro, delta: 0.08, higherIsBetter: false)
+---
+### 78 | Animations | Animation
+src: lib/02_ui_elements/animations.dart
+symbol: AnimatedCounter, SuccessCheckmark, ShakeController
+origin: NEW
+desc: AnimatedCounter (numbers count), SuccessCheckmark (drawn tick), Shake (wrong-input shake + haptic).
+use: Totals changing, success confirmations, wrong PIN/answer
+in: AnimatedCounter(value); SuccessCheckmark(size, onCompleted); Shake(controller, child) + ShakeController.shake()
+out: Animated widgets
+deps: Flutter only
+integ: Drop in; trigger Shake from your error handler
+cx: Low
+defend: All three skip the motion when reduce-motion is on (OS or AccessibilityScope)
+tests: test/02_ui_elements/new_elements_test.dart :: group:Animations
+status: full
+edge: Counter animates from the previous value
+limits: Fixed curves
+example:
+Shake(controller: shake, child: PinCodeField(onCompleted: verify))
+---
+### 79 | Charts (SimpleLineChart, Sparkline, DonutChart) | Chart
+src: lib/02_ui_elements/line_chart.dart, lib/02_ui_elements/donut_chart.dart
+symbol: SimpleLineChart, DonutChart, plotPoints, donutSweeps
+origin: NEW
+desc: Dependency-free line chart (with comparison series), sparkline and donut chart with legend.
+use: Trends, this-week-vs-last-week, category breakdowns
+in: SimpleLineChart(values, labels, comparison, …); Sparkline(values); DonutChart(segments: [ChartSegment(label, value)], centerLabel)
+out: Painted charts with spoken summaries
+deps: Flutter only
+integ: Feed dailySeries values (#113) or category totals
+cx: Low
+defend: Pure geometry functions (plotPoints, donutSweeps) are unit-tested; colours come from the theme (chartPalette)
+tests: test/02_ui_elements/new_elements_test.dart :: group:Charts
+status: full
+edge: All-zero data; few theme colours → hue-rotated palette
+limits: No axes, ticks, zoom or touch tooltips — use fl_chart if required
+example:
+DonutChart(segments: const [ChartSegment('Food', 260), ChartSegment('Rent', 700)], centerLabel: '€960')
+---
+### 80 | runWithLoading / LoadingOverlay / StatusBanner | Feedback
+src: lib/03_feedback/loading_overlay.dart
+symbol: runWithLoading, LoadingOverlay, StatusBanner
+origin: NEW
+desc: A blocking progress dialog that always closes, a local overlay, and inline info/success/warning/error banners.
+use: Long saves, imports, persistent warnings (over budget, offline)
+in: runWithLoading(context, task, message:); LoadingOverlay(isLoading, child); StatusBanner(kind, message, title, actionLabel, onAction, onDismiss)
+out: Task result (or rethrown error); widgets
+deps: Flutter only
+integ: await runWithLoading(context, () => repo.save(x))
+cx: Low
+defend: The dialog is closed in finally, so an exception never leaves it stuck on screen
+tests: test/03_feedback/loading_overlay_test.dart :: name:shows progress ; test/03_feedback/loading_overlay_test.dart :: name:closes the dialog ; test/03_feedback/loading_overlay_test.dart :: name:LoadingOverlay ; test/03_feedback/loading_overlay_test.dart :: name:StatusBanner
+status: full
+edge: Task throws → dialog closed, error rethrown
+limits: Blocking dialog for short actions is heavy — prefer a button's isLoading
+example:
+final saved = await runWithLoading(context, () => repo.save(note), message: 'Saving…');
+---
+### 81 | showAppBottomSheet | Dialog
+src: lib/04_dialogs_and_sheets/bottom_sheets.dart
+symbol: showAppBottomSheet
+origin: NEW
+desc: General bottom sheet with title, scrollable body, pinned actions, keyboard insets and a tablet max width.
+use: Forms (add/edit), filters, previews
+in: builder(sheetContext), title, actions(sheetContext), maxHeightFraction, isDismissible
+out: Future<T?> (pop the sheet with a value)
+deps: Flutter only
+integ: Return a value with Navigator.pop(sheetContext, value)
+cx: Low
+defend: actions get the sheet's own context, so popping returns a result instead of popping the page underneath
+tests: test/03_feedback/loading_overlay_test.dart :: name:showAppBottomSheet
+status: full
+edge: Long content scrolls; keyboard pushes content up
+limits: Pushes on the root Navigator — a ProviderScope below the Navigator is not visible inside it
+example:
+final item = await showAppBottomSheet<Item>(context, title: 'New item', builder: (sheet) => ItemForm(onSave: (i) => Navigator.pop(sheet, i)));
+---
+### 82 | DynamicForm + FieldSpec | Form
+src: lib/05_forms/dynamic_form.dart
+symbol: DynamicForm
+origin: NEW
+desc: A whole validated form from a list of field specs or JSON.
+use: Surveys, registrations, intake and inspection forms, "report an issue"
+in: fields: [TextFieldSpec, NumberFieldSpec, ChoiceFieldSpec (dropdown, or chips when multiple), SwitchFieldSpec, DateFieldSpec, SliderFieldSpec] or FieldSpec.fromJson; initialValues; onSubmit(Map)
+out: Typed values map (String, num, String/List<String>, bool, DateTime, double)
+deps: Flutter only
+integ: Put it in showAppBottomSheet; map values to your model
+cx: Low
+defend: Forms become data — a new form is a JSON list, not a new screen; the submit button shows a spinner while onSubmit runs
+tests: test/05_forms/dynamic_form_test.dart :: group:FieldSpec.fromJson ; test/05_forms/dynamic_form_test.dart :: group:DynamicForm
+status: full
+edge: Empty text → null; required fields block submit with "<Label> is required"; numbers accept a comma decimal
+limits: No conditional fields or file fields
+example:
+DynamicForm(fields: [const TextFieldSpec(key: 'title', label: 'Title', required: true)], onSubmit: (v) => save(v['title']! as String))
+---
+### 83 | Validators: number, phone, url, pattern | Form
+src: lib/05_forms/validators.dart
+symbol: Validators
+origin: NEW
+desc: Additional validators for numbers with bounds, phone numbers, web addresses and whole-input patterns.
+use: Forms with amounts, contacts, links, codes
+in: Validators.number(min:, max:), phone(), url(), pattern(regex, message)
+out: String? Function(String?)
+deps: Pure Dart
+integ: Compose with required()
+cx: Low
+defend: pattern() anchors the regex to the whole input — a partial match is a classic validation hole
+tests: test/05_forms/dynamic_form_test.dart :: group:New validators
+status: full
+edge: Empty input passes format validators by design
+limits: Phone check is length-based (7–15 digits), not per-country
+example:
+validator: Validators.number(min: 0.01, max: 10000)
+---
+### 84 | CalendarGrid event markers | Form
+src: lib/05_forms/calendar_grid.dart
+symbol: markerCount
+origin: NEW (extends #31)
+desc: 0–3 dots under days that have events, announced as "has events".
+use: Agendas, booking availability, habit calendars
+in: markerCount: (day) => int
+out: Dots + semantics
+deps: Flutter only
+integ: Pass a lookup into your events map
+cx: Low
+defend: Semantics expose the dots to screen readers
+tests: test/06_screen_templates/responsive_layout_test.dart :: name:CalendarGrid
+status: full
+edge: Counts above 3 show 3 dots
+limits: Dots only (no colours per event type)
+example:
+CalendarGrid(selected: day, onSelected: setDay, markerCount: (d) => eventsOn(d).length)
+---
+### 85 | Responsive layout | Screen template
+src: lib/06_screen_templates/responsive_layout.dart
+symbol: ResponsiveBuilder, ResponsiveGrid, gridColumnsFor, windowSizeFor
+origin: NEW
+desc: Width classes (compact < 600, medium < 840, expanded), a builder that picks a layout, and an equal-width grid.
+use: Apps judged on tablets, desktop or the web
+in: ResponsiveBuilder(compact, medium?, expanded?); ResponsiveGrid(children, minItemWidth, spacing, maxColumns)
+out: The right layout for the available width
+deps: Flutter only
+integ: Wrap a screen body; grid stat cards
+cx: Low
+defend: Uses the available width (LayoutBuilder), so it also works in split panes; missing builders fall back to smaller ones
+tests: test/06_screen_templates/responsive_layout_test.dart :: name:windowSizeFor ; test/06_screen_templates/responsive_layout_test.dart :: name:gridColumnsFor ; test/06_screen_templates/responsive_layout_test.dart :: name:ResponsiveBuilder ; test/06_screen_templates/responsive_layout_test.dart :: name:ResponsiveGrid
+status: full
+edge: Rows have equal heights; last row padded
+limits: Two or three layouts, not fluid typography
+example:
+ResponsiveBuilder(compact: (_) => const List(), expanded: (_) => const Row(children: [List(), Expanded(child: Detail())]))
+---
+### 86 | OtpVerificationScreen | Screen template
+src: lib/06_screen_templates/otp_screen.dart
+symbol: OtpVerificationScreen
+origin: NEW
+desc: Enter a code sent by email/SMS, with shake on error and a resend cooldown.
+use: Sign-up verification, 2FA, passwordless sign-in
+in: destination, onVerify(code) (throw on wrong), onResend, length, resendCooldown, errorMessage, title
+out: Calls onVerify / onResend
+deps: Flutter only
+integ: onVerify: (code) => auth.verifyOtp(...)
+cx: Low
+defend: Built from PinCodeField + Shake + CountdownController — three tested pieces
+tests: test/06_screen_templates/new_screens_test.dart :: group:OtpVerificationScreen
+status: full
+edge: Wrong code shows the error and clears the boxes
+limits: Sending the code is the backend's job
+example:
+OtpVerificationScreen(destination: email, onVerify: (c) => auth.verifyOtp(email: email, token: c), onResend: () => auth.sendOtp(email))
+---
+### 87 | DashboardTemplate | Screen template
+src: lib/06_screen_templates/dashboard_template.dart
+symbol: DashboardTemplate
+origin: NEW
+desc: Home screen: greeting, responsive stats grid, highlight card, sections and pull-to-refresh.
+use: The first tab of most apps
+in: greeting, subtitle, avatar, actions, stats, highlight, sections: [DashboardSection(title, child, actionLabel, onAction, icon)], onRefresh
+out: Scaffold
+deps: Flutter only
+integ: Compute stats from your providers; put rankByPriority's top item in highlight
+cx: Low
+defend: Pure layout — data and callbacks come in, so it fits any state management
+tests: test/06_screen_templates/new_screens_test.dart :: name:DashboardTemplate
+status: full
+edge: No highlight / no sections render cleanly
+limits: Fixed section order
+example:
+DashboardTemplate(greeting: 'Welcome back', stats: [StatCard(label: 'Open', value: '$open')], sections: [DashboardSection(title: 'Up next', child: list)])
+---
+### 88 | CrudListScreen + SearchFilterBar | Screen template
+src: lib/06_screen_templates/crud_list_screen.dart, lib/06_screen_templates/search_filter_bar.dart
+symbol: CrudListScreen, SearchFilterBar
+origin: NEW
+desc: A full "list of my things": search, filter chips, sort sheet, add button, swipe-delete with Undo, and loading/empty/no-match/error states.
+use: Tasks, expenses, inventory, contacts, bookings — most CRUD screens
+in: title, items (AsyncValue<List<T>>), idOf, titleOf, subtitleOf, leadingOf, trailingOf, searchableText, filters, sorts, onAdd, onTap, onDelete, onRestore, onRefresh, empty texts
+out: Callbacks
+deps: flutter_riverpod (AsyncValue)
+integ: items: ref.watch(crudProvider); onDelete/onRestore → CrudController
+cx: Low
+defend: Distinguishes "nothing yet" from "no matches"; Undo is a snackbar action calling onRestore
+tests: test/06_screen_templates/new_screens_test.dart :: group:CrudListScreen
+status: full
+edge: Pass onRefresh or the error state has no "Try again" (found while building a mini-app)
+limits: Loads the whole list; one swipe action
+example:
+CrudListScreen<Task>(title: 'Tasks', items: ref.watch(tasksProvider), idOf: (t) => t.id, titleOf: (t) => t.title, onAdd: add, onDelete: (t) => ctrl.delete(t.id), onRestore: ctrl.save, onRefresh: ctrl.reload)
+---
+### 89 | ListDetailScaffold | Screen template
+src: lib/06_screen_templates/list_detail_scaffold.dart
+symbol: ListDetailScaffold
+origin: NEW
+desc: Master–detail: pushes a detail page on phones, shows both panes side by side from 840 px.
+use: Messages, notes, products, matches, any browse-then-read flow
+in: title, items, idOf, tileBuilder(context, item, selected, open), detailBuilder, detailTitleOf, breakpoint, listWidth
+out: Navigation / selection
+deps: Flutter only
+integ: Call open() from the tile's onTap
+cx: Low
+defend: One widget gives correct phone and tablet behaviour without two codebases
+tests: test/06_screen_templates/new_screens_test.dart :: group:ListDetailScaffold
+status: full
+edge: Empty detail shows "Select an item"
+limits: The detail page on phones is pushed on the root Navigator (keep ProviderScope above MaterialApp)
+example:
+ListDetailScaffold(title: 'Notes', items: notes, idOf: (n) => n.id, tileBuilder: (c, n, sel, open) => ListTile(selected: sel, title: Text(n.title), onTap: open), detailBuilder: (c, n) => Text(n.body))
+---
+### 90 | AgendaCalendar | Screen template
+src: lib/06_screen_templates/agenda_calendar.dart
+symbol: AgendaCalendar
+origin: NEW
+desc: Month grid with event dots plus the selected day's events sorted by time.
+use: Bookings, schedules, study plans, events
+in: events, dateOf, itemBuilder, initialDay, onDaySelected, firstWeekday, emptyText
+out: Selected day; rendered agenda
+deps: Flutter only
+integ: Feed events; show placed tasks from scheduleTasks (#117)
+cx: Low
+defend: Combines CalendarGrid markers and a sorted list in one tested widget
+tests: test/06_screen_templates/new_screens_test.dart :: name:AgendaCalendar
+status: full
+edge: Empty day → emptyText
+limits: Month view only (no week/day timeline)
+example:
+AgendaCalendar(events: events, dateOf: (e) => e.at, itemBuilder: (c, e) => ListTile(title: Text(e.title)))
+---
+### 91 | AnalyticsTemplate | Screen template
+src: lib/06_screen_templates/analytics_template.dart
+symbol: AnalyticsTemplate
+origin: NEW
+desc: Stats screen with a period switcher, KPIs, trend line with comparison, breakdown donut and insight cards.
+use: Spending, study, fitness, sales analytics
+in: title, periods: Map<String, AnalyticsSnapshot(kpis, trend, trendLabels, comparisonTrend, breakdown, insights)>, initialPeriod
+out: Scaffold
+deps: Flutter only
+integ: Build snapshots with trends.dart / insights.dart
+cx: Low
+defend: Layout only; all numbers come from tested pure functions
+tests: test/06_screen_templates/new_screens_test.dart :: name:AnalyticsTemplate
+status: full
+edge: Empty period → "No data for this period yet"
+limits: No custom app-bar actions (compose your own Scaffold for export buttons, as the expense mini-app does)
+example:
+AnalyticsTemplate(title: 'Spending', periods: {'Week': weekSnapshot, 'Month': monthSnapshot})
+---
+### 92 | ProfileTemplate | Screen template
+src: lib/06_screen_templates/profile_template.dart
+symbol: ProfileTemplate, initialsOf
+origin: NEW
+desc: Profile screen: avatar (image or initials), stats row, edit button and free sections.
+use: User, pet, team or organisation profiles
+in: name, subtitle, image, stats: [ProfileStat(label, value)], sections, onEdit, actions
+out: Scaffold
+deps: Flutter only
+integ: Put XpProgressBar / BadgeGrid in sections
+cx: Low
+defend: initialsOf handles empty and one-word names ("?" / "S")
+tests: test/06_screen_templates/new_screens_test.dart :: group:Profile
+status: full
+edge: No image → initials avatar
+limits: Single header layout
+example:
+ProfileTemplate(name: user.name, stats: [ProfileStat('Streak', '$streak')], onEdit: edit)
+---
+### 93 | SettingsTemplate | Screen template
+src: lib/06_screen_templates/settings_template.dart
+symbol: SettingsTemplate
+origin: NEW
+desc: Settings screen from typed items: toggles, choices (picker sheet), links and destructive actions.
+use: Every app's settings
+in: groups: [SettingsGroup(title, footer, items: [SettingsToggle, SettingsChoice<T>, SettingsLink, SettingsAction])]
+out: Callbacks
+deps: Flutter only
+integ: SettingsChoice<ThemeMode> with themeModeProvider
+cx: Low
+defend: Bug fixed during testing — choosing a value crashed with a generic callback type error; the picker now lives in the generic SettingsChoice<T>.choose()
+tests: test/06_screen_templates/new_screens_test.dart :: name:SettingsTemplate
+status: full
+edge: Destructive actions styled in the error colour
+limits: Flat groups (no nested pages)
+example:
+SettingsTemplate(groups: [SettingsGroup(title: 'Appearance', items: [SettingsChoice<ThemeMode>(label: 'Theme', value: mode, options: const {ThemeMode.light: 'Light', ThemeMode.dark: 'Dark'}, onChanged: setMode)])])
+---
+### 94 | TabShell navigation rail | Navigation
+src: lib/07_navigation/tab_shell.dart
+symbol: railBreakpoint, NavigationRail
+origin: NEW (extends #39)
+desc: TabShell switches its bottom bar to a NavigationRail at 840 px and wider.
+use: Apps run on tablets, desktop or the web
+in: railBreakpoint (default 840)
+out: Adaptive navigation
+deps: Flutter only
+integ: Nothing extra — on by default
+cx: Low
+defend: Follows the Material/Android "expanded" width class; same code on phone and desktop
+tests: test/06_screen_templates/responsive_layout_test.dart :: name:TabShell
+status: full
+edge: Rotation/resizing switches live
+limits: Rail is not extended (icons + labels only)
+example:
+TabShell(railBreakpoint: 840, destinations: tabs)
+---
+### 95 | CrudController | State module
+src: lib/08_state_management/crud_controller.dart
+symbol: CrudController
+origin: NEW
+desc: AsyncNotifier for any list over any Repository: load, optimistic save, delete with undo, reload.
+use: Every CRUD feature
+in: CrudController((ref) => repository, idOf:, sort:); save(item), delete(id), reload()
+out: AsyncValue<List<T>>; delete returns the removed item
+deps: flutter_riverpod
+integ: AsyncNotifierProvider<CrudController<T>, List<T>>(() => CrudController(...))
+cx: Low
+defend: Optimistic updates feel instant; on failure the previous list is restored and the error rethrown for the UI
+tests: test/08_state_management/crud_and_query_test.dart :: group:CrudController
+status: full
+edge: Failed write rolls back; reload re-reads storage
+limits: Whole-list state (fine for thousands, not millions)
+example:
+final tasksProvider = AsyncNotifierProvider<CrudController<Task>, List<Task>>(() => CrudController((ref) => ref.watch(taskRepoProvider), idOf: (t) => t.id));
+---
+### 96 | ListQuery / applyListQuery | State module
+src: lib/08_state_management/list_query.dart
+symbol: applyListQuery
+origin: NEW
+desc: Search + filter + sort for any list as one immutable value and one pure function.
+use: Any searchable/filterable list
+in: ListQuery(text, filterIds, sortId, descending); FilterOption(id, label, test); SortOption(id, label, compare); FilterMode.all/any
+out: Filtered, sorted list
+deps: Pure Dart
+integ: CrudListScreen uses it; call directly for custom lists
+cx: Low
+defend: Pure function → trivially testable; every word must match, accents and case ignored; stable sort
+tests: test/08_state_management/crud_and_query_test.dart :: group:ListQuery
+status: full
+edge: Re-selecting a sort flips direction
+limits: In-memory (server-side search needed for huge data)
+example:
+final visible = applyListQuery(items, query, searchableText: (t) => t.title, filters: filters, sorts: sorts);
+---
+### 97 | Repository<T> + InMemoryRepository + SqfliteRepository | Persistence module
+src: lib/09_persistence/repository.dart, lib/09_persistence/sqflite_repository.dart
+symbol: InMemoryRepository, SqfliteRepository
+origin: NEW
+desc: One CRUD interface (getAll, getById, watchAll, save = upsert, delete) with in-memory and SQLite implementations.
+use: Every feature that stores records
+in: InMemoryRepository(idOf, initial); SqfliteRepository(db, table, idOf, toJson, fromJson) + createTable(db, table)
+out: Futures and a watchAll stream
+deps: repository.dart: none · sqflite_repository.dart: sqflite
+integ: Choose the implementation in one Provider<Repository<T>>; screens never change
+cx: Low
+defend: The repository is the seam — build flows on InMemory, swap to SQLite/Supabase without touching UI; split during verification so the interface no longer drags sqflite onto the web
+tests: test/08_state_management/crud_and_query_test.dart :: group:Repositories
+status: partial | SQLite tested on desktop via sqflite_common_ffi; sqflite does not support the web
+edge: watchAll emits immediately and after every write (bug fixed: early writes were missed)
+limits: JSON rows are not queryable by field in SQL
+example:
+final repo = SqfliteRepository<Task>(db, table: 'tasks', idOf: (t) => t.id, toJson: (t) => t.toJson(), fromJson: Task.fromJson);
+---
+### 98 | ApiClient | Backend integration
+src: lib/10_backend/api_client.dart
+symbol: ApiClient
+origin: NEW
+desc: JSON REST client with timeouts, typed errors and safe retries.
+use: Any public or sponsor API (weather, maps data, open data)
+in: ApiClient(baseUrl, client, authToken, headers, timeout, maxRetries); get/post/put/patch/delete(path, query, body)
+out: Decoded JSON or ApiException(kind, message, statusCode, isRetryable)
+deps: http
+integ: Wrap it in a repository; map JSON to models
+cx: Low
+defend: Retries only idempotent methods on network/timeout/429/5xx with backoff or Retry-After; 5xx bodies never shown to users
+tests: test/10_backend/api_client_test.dart :: all
+status: full
+edge: Non-JSON 2xx → badResponse; null query values dropped
+limits: JSON only; no caching (pair with JsonCache)
+example:
+final items = await ApiClient(baseUrl: 'https://api.example.com/v1').get('/items', query: {'page': 2});
+---
+### 99 | SupabaseRepository | Backend integration
+src: lib/10_backend/supabase_repository.dart
+symbol: SupabaseRepository
+origin: NEW
+desc: Repository<T> over a Supabase table, with live updates through .stream().
+use: Multi-user or cross-device data
+in: SupabaseRepository(client, table, fromRow, toRow, idOf, idColumn, orderBy, ascending)
+out: Futures; watchAll stream; errors mapped to AppException
+deps: supabase_flutter
+integ: Table with an id primary key, RLS policies (user_id = auth.uid()), Realtime enabled for watchAll
+cx: Medium
+defend: Same interface as local storage, so switching to the cloud is one provider line
+tests: none
+status: external | not unit-tested; needs a Supabase project, a table and RLS policies
+edge: Errors mapped to AppException
+limits: No offline support on its own (wrap with OfflineFirstRepository)
+example:
+SupabaseRepository<Note>(client, table: 'notes', fromRow: Note.fromJson, toRow: (n) => n.toJson(), idOf: (n) => n.id, orderBy: 'updated_at')

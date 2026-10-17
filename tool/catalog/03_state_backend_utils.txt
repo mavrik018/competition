@@ -1,0 +1,576 @@
+### 45 | ActionController | State module
+src: lib/08_state_management/action_controller.dart
+symbol: ActionController
+origin: KA, SM
+desc: Runs one user-triggered async action and exposes loading / error state, ignoring double taps.
+use: Sign in, save, delete, submit — any button that calls the network
+in: run(() async {...})
+out: Future<bool> success; state AsyncValue<void>; reset()
+deps: flutter_riverpod
+integ: One NotifierProvider.autoDispose per action; watch it for isLoading / hasError
+cx: Low
+defend: Returns success so the screen can navigate without re-reading state; a second run while busy is ignored (no duplicate sign-ups)
+tests: test/08_state_management/state_management_test.dart :: group:ActionController
+status: full
+edge: Failure keeps the error until the next run or reset
+limits: One action at a time per provider (declare one provider per action)
+example:
+final ok = await ref.read(saveNoteAction.notifier).run(() => repo.save(note));
+if (ok && context.mounted) Navigator.pop(context);
+---
+### 46 | PaginationController | State module
+src: lib/08_state_management/pagination_controller.dart
+symbol: PaginationController
+origin: CP (+controller)
+desc: Cursor-based infinite list state with load-more, refresh and error retry.
+use: Feeds, search results, long server lists
+in: PaginationController((ref, cursor) => Future<PageResult<T>>)
+out: PaginatedState<T>(items, isLoadingFirstPage, isLoadingMore, hasMore, cursor, error); loadMore(), refresh()
+deps: flutter_riverpod
+integ: Call loadMore when the last row builds
+cx: Medium
+defend: A generation guard drops stale pages after a refresh; an error keeps loaded rows
+tests: test/08_state_management/state_management_test.dart :: group:PaginationController
+status: full
+edge: Error then retry; refresh restarts from the first page
+limits: Cursor-based only (offset paging needs a small adapter)
+example:
+if (index == state.items.length - 1) ref.read(notesPager.notifier).loadMore();
+---
+### 47 | CountdownController | State module
+src: lib/08_state_management/countdown_controller.dart
+symbol: CountdownController
+origin: SM
+desc: Suspend-proof countdown based on a deadline, not on counting ticks.
+use: Timers, OTP resend cooldowns, quizzes, workouts
+in: CountdownController(duration, onFinished, clock?, tick); start/pause/toggle/reset/resync
+out: remaining, progress, formatted, isRunning (ChangeNotifier)
+deps: Flutter only
+integ: ListenableBuilder(listenable: countdown, builder: …)
+cx: Low
+defend: Computes remaining = deadline − now, so it stays correct after the app is suspended
+tests: test/08_state_management/state_management_test.dart :: group:CountdownController
+status: full
+edge: Finishes exactly once; pause keeps remaining time
+limits: Foreground only — use ReminderScheduler for a notification when backgrounded
+example:
+final countdown = CountdownController(duration: const Duration(minutes: 25), onFinished: done)..start();
+---
+### 48 | Debouncer | State module
+src: lib/08_state_management/debouncer.dart
+symbol: Debouncer
+origin: TD (pattern fixed)
+desc: Delays an action until input has been quiet for a moment.
+use: Search-as-you-type, autosave
+in: Debouncer(delay); run(action), cancel(), flush(action), isPending
+out: The last action runs once
+deps: Pure Dart
+integ: Call run from onChanged; dispose in State.dispose
+cx: Low
+defend: Fixed a source bug — the debounced provider returned the raw query from build, so it never debounced (verified, pattern documented and tested)
+tests: test/08_state_management/state_management_test.dart :: group:Debouncer ; test/08_state_management/state_management_test.dart :: name:debounced provider
+status: full
+edge: cancel drops; flush runs now
+limits: Leading-edge debounce not supported
+example:
+TextField(onChanged: (q) => _debouncer.run(() => ref.read(searchProvider.notifier).search(q)))
+---
+### 49 | PrefsStore | Persistence module
+src: lib/09_persistence/prefs_store.dart
+symbol: PrefsStore
+origin: NEW
+desc: Typed SharedPreferences keys with defaults, plus JSON values.
+use: Settings, flags, small JSON blobs (onboarding done, profile cache)
+in: PrefKey<T>(name, default); get, set, remove, contains, getJson, setJson
+out: Typed values
+deps: shared_preferences, flutter_riverpod
+integ: Override prefsStoreProvider in main with PrefsStore(await SharedPreferences.getInstance())
+cx: Low
+defend: One declaration per key and defaults are not duplicated; corrupt JSON reads as absent
+tests: test/09_persistence/persistence_test.dart :: group:PrefsStore
+status: full
+edge: Wrong type → default
+limits: Not for critical or large data (shared_preferences docs)
+example:
+const onboardingDone = PrefKey<bool>('onboarding_done', false);
+final done = ref.read(prefsStoreProvider).get(onboardingDone);
+---
+### 50 | generateLocalId | Utility
+src: lib/09_persistence/local_id.dart
+symbol: generateLocalId
+origin: KA
+desc: Client-side UUID v4.
+use: Creating records offline; ids before the server sees them
+in: generateLocalId([Random])
+out: String UUID
+deps: Pure Dart
+integ: Use as the id of new models
+cx: Low
+defend: Records keep the same id before and after sync, so relations created offline stay valid
+tests: test/09_persistence/persistence_test.dart :: name:generateLocalId
+status: full
+edge: Injectable Random for tests
+limits: Not cryptographically audited (uses Random.secure by default)
+example:
+final task = Task(id: generateLocalId(), title: title);
+---
+### 51 | OfflineQueue | Persistence module
+src: lib/09_persistence/offline_queue.dart
+symbol: OfflineQueue
+origin: CP, SM, KA
+desc: Durable SQLite queue of writes made offline, replayed in order with backoff.
+use: Offline-first apps; any write that must eventually reach a server
+in: enqueue(type, payload, userId); drain(handlers: {type: (payload) → OpOutcome}, userId); pendingCount, retryNow, remove, clearUser, createTable
+out: DrainResult(done, dropped, stoppedEarly)
+deps: sqflite
+integ: Drain on reconnect; used by OfflineFirstRepository (#124)
+cx: Medium
+defend: Combines the best of three implementations: backoff, stop on first transient failure, per-user scoping
+tests: test/09_persistence/persistence_test.dart :: group:OfflineQueue
+status: partial | logic tested on desktop SQLite (sqflite_common_ffi); sqflite does not run on the web
+edge: Exhausted ops stay for a manual retry; unknown op types are left alone; re-entrant drain ignored
+limits: Not available on the web
+example:
+await queue.enqueue('note_upsert', note.toJson(), userId: uid);
+await queue.drain(userId: uid, handlers: {'note_upsert': (p) async { await api.save(p); return OpOutcome.done; }});
+---
+### 52 | JsonCache | Persistence module
+src: lib/09_persistence/json_cache.dart
+symbol: JsonCache
+origin: KA
+desc: Offline read cache of JSON collections and items, with the time of the last sync.
+use: Showing the last known data when offline
+in: saveCollection / loadCollection (null = never synced), saveItem / loadItem, syncedAt, clearUser, createTables
+out: Cached JSON
+deps: sqflite
+integ: Try network → save → on failure load the cache (rethrow if never synced)
+cx: Medium
+defend: Distinguishes "never synced" (null) from "synced, empty" ([]), which decides between an error and an empty state
+tests: test/09_persistence/persistence_test.dart :: group:JsonCache
+status: partial | tested on desktop SQLite; not on the web
+edge: Items without an id are keyed by position
+limits: Not available on the web
+example:
+final cached = await cache.loadCollection(uid, 'notes');
+---
+### 53 | Supabase bootstrap | Backend integration
+src: lib/10_backend/supabase_bootstrap.dart
+symbol: initializeSupabase
+origin: KA
+desc: Initialises Supabase from --dart-define values and exposes client, auth-state and current-user providers.
+use: Any app using Supabase
+in: --dart-define=SUPABASE_URL=… --dart-define=SUPABASE_PUBLISHABLE_KEY=…
+out: initializeSupabase() → String? error; supabaseClientProvider, authStateProvider, currentUserProvider, userIdChanges(client)
+deps: supabase_flutter, flutter_riverpod
+integ: await initializeSupabase() in main; show a "can't connect" screen on error
+cx: Medium
+defend: No URL or key baked into the source; returns an error instead of crashing on launch; the publishable key is public by design, RLS protects data
+tests: test/10_backend/backend_test.dart :: name:Supabase config
+status: partial+external | only the unconfigured path is tested; needs a Supabase project and --dart-define values
+edge: Missing config → error string, not a crash
+limits: Initialisation against a live project is not unit-tested
+example:
+final error = await initializeSupabase();
+runApp(ProviderScope(child: App(startupError: error)));
+---
+### 54 | AppException | Backend integration
+src: lib/10_backend/app_exception.dart
+symbol: AppException
+origin: KA, SM, TD
+desc: Turns any backend error into a user-safe message plus a kind (offline, auth, validation, permission, quota…).
+use: Every catch block that shows something to the user
+in: AppException.from(Object error)
+out: AppException(message, kind, cause); isOffline, isAuth, isRetryable
+deps: supabase_flutter (for its error types)
+integ: catch (e) { context.showError(AppException.from(e).message); }
+cx: Low
+defend: One mapper means consistent wording, and raw exception text never reaches the screen; web-safe (no dart:io)
+tests: test/10_backend/backend_test.dart :: group:AppException.from
+status: full
+edge: Retryable auth fetch → offline; Postgres codes → validation/permission
+limits: English messages
+example:
+} catch (e, st) { final f = AppException.from(e); context.showError(f.message, error: e, stackTrace: st); }
+---
+### 55 | AuthService | Backend integration
+src: lib/10_backend/auth_service.dart
+symbol: AuthService, generateNonce, sha256Hex
+origin: SM, KA
+desc: Email/password, OAuth, native Sign in with Apple, OTP, password reset, sign-out and account deletion over Supabase Auth.
+use: Apps with real accounts
+in: AuthService(client, redirectUrl:); signIn, signUp, signInWithApple, sendOtp/verifyOtp, resetPassword, signOut, deleteAccount
+out: Futures that throw AppException
+deps: supabase_flutter, sign_in_with_apple, crypto
+integ: Call from ActionController.run; configure providers in the Supabase dashboard
+cx: High
+defend: Keeps hard-won fixes (nonce replay protection, first-time-only Apple name); deletion stays signed in when the server call fails
+tests: test/10_backend/backend_test.dart :: group:Auth helpers
+status: partial+external | only nonce/hash helpers are unit-tested; flows need a Supabase project, redirect URLs and Apple/Google setup
+edge: Apple returns the name only on first sign-in
+limits: Flows are verified only against a live project
+example:
+final auth = AuthService(Supabase.instance.client, redirectUrl: 'com.example.app://login-callback');
+await auth.signIn(email: email, password: password);
+---
+### 56 | EdgeFunctionClient | Backend integration
+src: lib/10_backend/edge_function_client.dart
+symbol: EdgeFunctionClient
+origin: SM
+desc: Typed calls to Supabase Edge Functions that return an {ok, data} / {ok:false, error} envelope.
+use: AI calls, payments, anything with a server-held secret
+in: call(name, body:, parse:)
+out: T, or throws EdgeFunctionFailure(code, message, retryable, details)
+deps: supabase_flutter
+integ: EdgeFunctionClient.supabase(Supabase.instance.client)
+cx: Medium
+defend: One place for envelope parsing and error translation; the network call is injectable so parsing is unit-tested
+tests: test/10_backend/backend_test.dart :: group:EdgeFunctionClient
+status: partial+external | parsing and errors tested with a fake invoker; needs deployed functions
+edge: ok:false on a 2xx is still a failure; gateway HTML pages → retryable transport failure; signed-out callers fail before the network
+limits: Envelope format is a convention your functions must follow
+example:
+final summary = await functions.call('summarize', body: {'text': text}, parse: (d) => d['summary'] as String);
+---
+### 57 | StorageUploader + SignedUrlCache | Backend integration
+src: lib/10_backend/storage_uploader.dart
+symbol: StorageUploader
+origin: CP
+desc: Retried, cancellable uploads to Supabase Storage and cached signed URLs.
+use: Profile photos, attachments, receipts
+in: upload(bytes, path, contentType, handle, onProgress); storagePath(ownerId, folder, extension); SignedUrlCache.get(path)
+out: Stored path; signed URL
+deps: supabase_flutter
+integ: Upload after FileRules.check; store only the path in your table
+cx: Medium
+defend: Owner-first paths suit Storage RLS policies; signed URLs are re-signed shortly before expiry
+tests: test/10_backend/backend_test.dart :: group:StorageUploader ; test/10_backend/backend_test.dart :: name:SignedUrlCache
+status: partial+external | retry/cancel logic tested with fakes; needs a Storage bucket and RLS policies
+edge: Cancelled handle stops before the next attempt
+limits: No image compression (caller's choice)
+example:
+final path = await uploader.upload(bytes, storagePath(uid, 'avatars', 'jpg'), contentType: 'image/jpeg');
+---
+### 58 | PresenceRoom | Real-time module
+src: lib/10_backend/realtime_presence.dart
+symbol: PresenceRoom, onlineIdsFrom
+origin: CP
+desc: Who is online in a room, via Supabase Realtime presence.
+use: "Partner is online", live classrooms, multiplayer lobbies
+in: PresenceRoom(client, room, userId); join(), rejoin(), leave()
+out: Stream<Set<String>> onlineUserIds
+deps: supabase_flutter
+integ: join on screen open; rejoin when connectivity returns
+cx: Medium
+defend: Re-announces presence after reconnecting; payload parsing is a pure, tested function
+tests: test/10_backend/backend_test.dart :: name:onlineIdsFrom
+status: partial+external | only payload parsing is tested; needs Supabase Realtime (and a policy for private channels)
+edge: Malformed payloads skipped; duplicates removed
+limits: The channel itself is not unit-tested
+example:
+final room = PresenceRoom(client, room: 'couple:$id', userId: uid)..join();
+---
+### 59 | Connectivity | Backend integration
+src: lib/10_backend/connectivity.dart
+symbol: hasConnection
+origin: CP, KA
+desc: Online / offline state as Riverpod providers.
+use: Offline banners, triggering sync on reconnect
+in: (platform stream)
+out: connectivityProvider (Stream<bool>), isOnlineProvider (bool), hasConnection(results)
+deps: connectivity_plus, flutter_riverpod
+integ: ref.watch(isOnlineProvider); ref.listen to trigger sync
+cx: Low
+defend: Optimistic default and distinct changes avoid flicker; the mapping is a pure tested function
+tests: test/10_backend/backend_test.dart :: name:hasConnection
+status: partial | mapping tested; the plugin stream needs a device
+edge: "Connected to Wi-Fi" is not proof of internet access
+limits: Detects network interfaces, not actual reachability
+example:
+ref.listen(isOnlineProvider, (was, now) { if (was == false && now) repo.sync(); });
+---
+### 60 | PurchasesGateway | Backend integration
+src: lib/10_backend/purchases_gateway.dart
+symbol: PurchasesGateway, planForProduct, baseProductId
+origin: KA
+desc: RevenueCat in-app purchases behind a testable interface.
+use: Subscriptions and paywalls
+in: configure(apiKey, appUserId), logIn, getOfferings, purchasePackage, restorePurchases; baseProductId, planForProduct
+out: Futures over the RevenueCat SDK
+deps: purchases_flutter
+integ: Override purchasesGatewayProvider; keys from your RevenueCat project
+cx: High
+defend: A seam over a static SDK makes billing logic testable; product-id mapping keeps Google Play base-plan quirks out of the UI
+tests: test/10_backend/backend_test.dart :: name:product ids
+status: partial+external | id mapping tested; store calls need RevenueCat and store products
+edge: Play base-plan suffixes stripped
+limits: Paywall UI not included
+example:
+await ref.read(purchasesGatewayProvider).configure(apiKey: revenueCatKey, appUserId: uid);
+---
+### 61 | Date utilities | Utility
+src: lib/11_utilities/date_utils.dart
+symbol: relativeDayLabel
+origin: KA, TD, CP
+desc: DST-safe date maths and human labels without intl.
+use: Due dates, agendas, "2 hours ago", week numbers
+in: dateOnly, isSameDay, addDays, daysBetween, daysInMonth, startOfWeek, isoWeekNumber, addYears, formatShortDate, formatTime, relativeDayLabel, timeAgo
+out: DateTimes, ints, Strings
+deps: Pure Dart
+integ: Import and call
+cx: Low
+defend: Builds dates from year/month/day so DST changes cannot shift a day
+tests: test/11_utilities/utilities_test.dart :: group:date_utils
+status: full
+edge: Leap years; Feb 29 + 1 year; ISO week at year boundaries
+limits: English labels
+example:
+Text(relativeDayLabel(task.due!, now: DateTime.now()))   // "Tomorrow"
+---
+### 62 | Number formatting | Utility
+src: lib/11_utilities/number_format.dart
+symbol: formatCompact
+origin: KA + NEW
+desc: Display helpers for quantities, compact numbers, bytes and durations.
+use: Stats, file sizes, timers
+in: formatQuantity, formatCompact, formatBytes, formatDuration
+out: String
+deps: Pure Dart
+integ: Import and call
+cx: Low
+defend: No intl dependency for the common cases
+tests: test/11_utilities/utilities_test.dart :: group:number_format
+status: full
+edge: Fractions like 1/2 kept readable
+limits: Not locale-aware (use intl for currencies)
+example:
+Text(formatCompact(12500))   // "12.5K"
+---
+### 63 | Markdown parser | Utility
+src: lib/11_utilities/markdown_parser.dart
+symbol: parseMarkdown
+origin: SM (+TD)
+desc: Parses the Markdown subset AI and notes use into blocks and inline spans.
+use: Rendering, exporting or editing Markdown
+in: parseMarkdown(text), parseInline(text)
+out: List<MarkdownBlock>, List<InlineSpanData>
+deps: Pure Dart
+integ: Used by MarkdownView and MarkdownEditingController
+cx: Low
+defend: One parser for every renderer (the source's screen and PDF had drifted apart)
+tests: test/11_utilities/utilities_test.dart :: group:markdown_parser
+status: full
+edge: Unterminated fences; Windows line endings; escaped pipes in tables
+limits: Subset only; `_underline_` intentionally not parsed (breaks snake_case)
+example:
+final blocks = parseMarkdown(reply);
+---
+### 64 | Geo distance | Utility
+src: lib/11_utilities/geo.dart
+symbol: distanceKm
+origin: CP
+desc: Haversine distance and friendly distance labels.
+use: Nearby places, delivery radius, matching by distance
+in: distanceKm(lat1, lng1, lat2, lng2), formatDistance(km)
+out: double km, String
+deps: Pure Dart
+integ: Import and call; GeoPoint (#104) wraps it
+cx: Low
+defend: Pure Dart, no platform plugin needed for maths
+tests: test/11_utilities/utilities_test.dart :: name:distanceKm
+status: full
+edge: Short distances shown in metres
+limits: Great-circle distance, not travel distance
+example:
+Text(formatDistance(distanceKm(a.lat, a.lng, b.lat, b.lng)))
+---
+### 65 | Spaced repetition (SM-2) | Algorithm module
+src: lib/11_utilities/spaced_repetition.dart
+symbol: ReviewState
+origin: SM
+desc: SM-2 scheduling for flashcards.
+use: Language learning, revision, any memorisation app
+in: ReviewState.review(grade, now:); dueCards(map, now, limit)
+out: Next ReviewState (interval, ease, due); due card ids
+deps: Pure Dart
+integ: Store ReviewState JSON per card; call review after each answer
+cx: Low
+defend: Classic, explainable algorithm (intervals 1, 6, then × ease); compatible with the source's stored data
+tests: test/11_utilities/utilities_test.dart :: group:spaced_repetition
+status: full
+edge: Forgetting resets; ease stays within 1.3–3.0
+limits: SM-2 (not FSRS)
+example:
+final next = state.review(4, now: DateTime.now());
+---
+### 66 | Streaks | Algorithm module
+src: lib/11_utilities/streak.dart
+symbol: currentStreak
+origin: TD
+desc: Daily streak rules separated from storage.
+use: Habits, study, fitness apps
+in: recordActivity(lastActiveDay, count, today); currentStreak(days, today); longestStreak(days)
+out: Streak counts
+deps: Pure Dart
+integ: Feed the days with activity
+cx: Low
+defend: Today not yet done doesn't break the streak (yesterday still counts) — the rule users expect
+tests: test/11_utilities/utilities_test.dart :: group:streak
+status: full
+edge: Gaps reset; duplicate days ignored
+limits: Calendar days in local time
+example:
+final streak = currentStreak(activeDays, DateTime.now());
+---
+### 67 | scaleQuantity | Utility
+src: lib/11_utilities/quantity_scaler.dart
+symbol: scaleQuantity
+origin: KA (bug fixed)
+desc: Scales free-text recipe amounts ("1 1/2 cups") by a factor.
+use: Recipe servings, ingredient lists
+in: scaleQuantity(amount, factor, measuredUnits:)
+out: String
+deps: Pure Dart
+integ: Apply to each ingredient line
+cx: Low
+defend: Fixed a source bug where zero denominators were mangled; the unit list is injectable
+tests: test/11_utilities/utilities_test.dart :: name:scaleQuantity
+status: full
+edge: Malformed fractions returned unchanged
+limits: English units and fractions
+example:
+scaleQuantity('1 1/2 cups', 2)   // "3 cups"
+---
+### 68 | Health calculator | Algorithm module
+src: lib/11_utilities/health_calc.dart
+symbol: bmi
+origin: KA (+BMI)
+desc: BMR (Mifflin-St Jeor), daily energy target, macros and BMI.
+use: Fitness and nutrition apps
+in: Typed enums (sex, activity level, goal), weight, height, age
+out: ints, macro record, BMI value and category
+deps: Pure Dart
+integ: Feed profile values
+cx: Low
+defend: Enums instead of strings; a calorie floor prevents unsafe targets
+tests: test/11_utilities/utilities_test.dart :: group:health_calc
+status: full
+edge: Floors on very low targets
+limits: Population estimates, not medical advice
+example:
+final value = bmi(weightKg: 70, heightCm: 175);
+---
+### 69 | Collection utilities | Utility
+src: lib/11_utilities/collection_utils.dart
+symbol: groupBy
+origin: CP + NEW
+desc: reorder (ReorderableListView-aware), groupBy, distinctBy.
+use: Drag-to-reorder lists, grouping by date or category
+in: reorder(list, oldIndex, newIndex), groupBy(items, key), distinctBy(items, key)
+out: New lists / maps
+deps: Pure Dart
+integ: Call from onReorder
+cx: Low
+defend: Handles ReorderableListView's off-by-one newIndex correctly
+tests: test/11_utilities/utilities_test.dart :: group:collection_utils
+status: full
+edge: Keeps original order within groups
+limits: In-memory only
+example:
+onReorder: (o, n) => setState(() => items = reorder(items, o, n))
+---
+### 70 | AppLogger | Utility
+src: lib/11_utilities/app_logger.dart
+symbol: AppLogger
+origin: CP
+desc: Levelled, tagged logging with an optional sink.
+use: Debugging, sending errors to a crash reporter
+in: debug / info / warning / error
+out: dart:developer log + optional sink
+deps: Flutter only
+integ: Create one per feature tag
+cx: Low
+defend: "Never log user content" rule; debug entries can be suppressed in release
+tests: test/11_utilities/utilities_test.dart :: name:AppLogger
+status: full
+edge: Sink receives all levels
+limits: No remote backend included
+example:
+const log = AppLogger('sync');
+log.warning('retrying', error: e);
+---
+### 71 | ReminderScheduler | Device feature
+src: lib/12_common_features/reminder_scheduler.dart
+symbol: ReminderScheduler, notificationIdFor, nextDailyOccurrence
+origin: CP (improved)
+desc: Local notifications: one-off and daily reminders with tap routing.
+use: Habit, medication, study and deadline reminders
+in: initialize(), requestPermission(), schedule(Reminder(key, title, body, at, payload)), scheduleDaily(key, title, body, hour, minute), cancel(key), syncAll(reminders)
+out: bool / counts; taps → payload
+deps: flutter_local_notifications, timezone, flutter_timezone
+integ: Android: core library desugaring in android/app/build.gradle.kts (tool/create_app.dart adds it); route taps through DeepLinkQueue
+cx: High
+defend: Stable FNV-1a ids instead of String.hashCode; real device time zones instead of abbreviation guessing
+tests: test/12_common_features/common_features_test.dart :: group:Reminder ids and times ; test/12_common_features/device_features_test.dart :: name:nextDailyOccurrence
+status: partial+external | ids, zones and next-occurrence maths tested; delivery needs a device, permission and Android desugaring
+edge: Same key → same id across runs; daily reminder rolls to tomorrow when the time has passed
+limits: Exact alarms on Android need extra permission for precise timing
+example:
+await reminders.scheduleDaily(key: 'study', title: 'Study time', body: '25 minutes today?', hour: 19, minute: 0);
+---
+### 72 | Permission helper | Device feature
+src: lib/12_common_features/permission_helper.dart
+symbol: outcomeFor
+origin: CP
+desc: Permission request with a three-way outcome: granted, denied, blocked.
+use: Camera, location, notifications, microphone
+in: requestPermission(Permission), checkPermission(Permission)
+out: PermissionOutcome {granted, denied, blocked}; openAppSettings
+deps: permission_handler
+integ: Show a "Open Settings" button when blocked
+cx: Low
+defend: Exposes "blocked → Settings", which a boolean hides
+tests: test/12_common_features/common_features_test.dart :: name:outcomeFor
+status: partial+external | status mapping tested; prompts need a device and platform usage strings
+edge: Every platform status maps to an outcome
+limits: Platform prompts are not unit-testable
+example:
+if (await requestPermission(Permission.camera) == PermissionOutcome.blocked) openAppSettings();
+---
+### 73 | PomodoroController | Algorithm module
+src: lib/12_common_features/pomodoro_controller.dart
+symbol: PomodoroController
+origin: SM
+desc: Focus / short break / long break cycles on top of the suspend-proof countdown.
+use: Study and productivity apps
+in: focus/break minutes, roundsBeforeLongBreak, autoStartNext, onPhaseComplete(phase, minutes); start/pause/toggle/reset/skip/switchTo/setFocusMinutes
+out: phase, timer, completedFocusRounds
+deps: Flutter only
+integ: ListenableBuilder over the controller
+cx: Low
+defend: Only completed focus counts; length is locked mid-run
+tests: test/12_common_features/common_features_test.dart :: group:PomodoroController
+status: full
+edge: Without auto-start the next phase waits
+limits: Foreground timing (pair with reminders for background alerts)
+example:
+final pomodoro = PomodoroController(onPhaseComplete: (phase, m) => log(phase, m))..start();
+---
+### 74 | QuizSession | Algorithm module
+src: lib/12_common_features/quiz_session.dart
+symbol: QuizSession
+origin: SM
+desc: Resumable multiple-choice quiz state with stable shuffling and scoring.
+use: Quizzes, trivia, exam practice
+in: QuizSession(questions, seed); answer, next, previous, tick
+out: score, mistakes, progress, isComplete, optionsFor(i), JSON
+deps: Pure Dart
+integ: Persist toJson to resume later
+cx: Low
+defend: An immutable value decoupled from storage; seeded shuffling survives restarts
+tests: test/12_common_features/common_features_test.dart :: group:QuizSession
+status: full
+edge: Empty quiz is complete
+limits: Single-answer questions
+example:
+var quiz = QuizSession(questions: questions, seed: 42);
+quiz = quiz.answer(1);

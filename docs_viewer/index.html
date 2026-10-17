@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flutter Competition Toolkit - Documentation Hub</title>
+  
+  <!-- Highlight.js Theme -->
+  <link rel="stylesheet" href="assets/github-dark.min.css" id="highlightThemeLink">
+  
+  <!-- Custom Modern Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Reading Progress Bar -->
+  <div class="reading-progress-bar" id="readingProgressBar"></div>
+
+  <div class="app-layout">
+    
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      
+      <!-- Brand Header -->
+      <div class="sidebar-header">
+        <a href="#" class="brand">
+          <div class="brand-icon">⚡</div>
+          <div class="brand-text">
+            <h1>Competition Toolkit</h1>
+            <span>Flutter Docs & Playbooks</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Quick Search Trigger -->
+      <button class="sidebar-search-btn" id="globalSearchTrigger" title="Search documentation (Ctrl+K)">
+        <span style="display:flex;align-items:center;gap:8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          Search all docs...
+        </span>
+        <span class="kbd-shortcut">Ctrl K</span>
+      </button>
+
+      <!-- Sidebar Tab Switcher -->
+      <div class="sidebar-tabs" id="sidebarTabs">
+        <button class="sidebar-tab active" data-tab="all">All (23)</button>
+        <button class="sidebar-tab" data-tab="primary">Core (8)</button>
+        <button class="sidebar-tab" data-tab="modules">Lib (14)</button>
+      </div>
+
+      <!-- Sidebar Scrollable Navigation -->
+      <div class="sidebar-content">
+        
+        <!-- Primary 8 Documents Section -->
+        <div id="sectionCoreDocs">
+          <div class="nav-section-title">
+            <span>Core Guides & Reference</span>
+            <span style="font-size:10px;opacity:0.7;">8 Docs</span>
+          </div>
+          <nav class="nav-items-list" id="primaryNavList">
+            <!-- Populated by app.js -->
+          </nav>
+        </div>
+
+        <!-- Lib Modules (14) Section -->
+        <div id="sectionLibModules" style="margin-top: 14px;">
+          <div class="nav-section-title">
+            <span>Lib Modules (lib/NN_*)</span>
+            <span style="font-size:10px;opacity:0.7;">14 Modules</span>
+          </div>
+          <nav class="nav-items-list" id="moduleNavList">
+            <!-- Populated by app.js -->
+          </nav>
+        </div>
+
+        <!-- Examples / Showcase Section -->
+        <div id="sectionShowcase" style="margin-top: 14px;">
+          <div class="nav-section-title">
+            <span>Showcase & Demos</span>
+            <span style="font-size:10px;opacity:0.7;">1 App</span>
+          </div>
+          <nav class="nav-items-list" id="showcaseNavList">
+            <!-- Populated by app.js -->
+          </nav>
+        </div>
+
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div style="font-size:11px;color:var(--text-muted);">
+          Offline Local Viewer
+        </div>
+        <div class="footer-btn-group">
+          <button class="tool-btn" id="fontSmallerBtn" title="Decrease font size">A-</button>
+          <button class="tool-btn" id="fontBiggerBtn" title="Increase font size">A+</button>
+          <button class="tool-btn" id="themeToggleBtn" title="Toggle theme">☀️</button>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- MAIN READING VIEW -->
+    <main class="main-wrapper">
+      
+      <!-- Top Bar -->
+      <header class="topbar">
+        
+        <div class="topbar-left">
+          <!-- Mobile Sidebar Toggle -->
+          <button class="action-btn sidebar-toggle-btn" id="sidebarToggleBtn" title="Toggle Navigation">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+
+          <!-- Breadcrumbs -->
+          <div class="breadcrumbs">
+            <span>Docs</span>
+            <span class="crumb-sep">/</span>
+            <span id="crumbDocCategory">Core Guides</span>
+            <span class="crumb-sep">/</span>
+            <span class="crumb-current" id="crumbDocTitle">Overview</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Search Button -->
+          <button class="action-btn" id="searchModalBtn" title="Search all documents (Ctrl+K)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <span>Search</span>
+          </button>
+
+          <!-- Copy Raw Markdown -->
+          <button class="action-btn" id="copyRawDocBtn" title="Copy entire raw markdown to clipboard">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            <span>Copy Raw</span>
+          </button>
+
+          <!-- Print / PDF -->
+          <button class="action-btn" id="printDocBtn" title="Print or save as PDF">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
+            <span>Print</span>
+          </button>
+
+          <!-- Toggle TOC Sidebar -->
+          <button class="action-btn" id="tocToggleBtn" title="Toggle Table of Contents sidebar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>
+            <span>Outline</span>
+          </button>
+        </div>
+
+      </header>
+
+      <!-- Content Layout Area -->
+      <div class="content-layout">
+        
+        <!-- Document Content Article -->
+        <article class="article-container" id="articleContainer">
+          <div class="article-inner">
+            
+            <!-- Document Meta Header Banner -->
+            <header class="doc-header-banner">
+              <div class="doc-meta-tags">
+                <span class="doc-badge primary" id="docHeaderBadge">Start Here</span>
+                <span class="doc-badge" id="docHeaderCategory">Core Guide</span>
+                <span class="doc-badge" id="docHeaderReadTime">12 min read</span>
+                <span class="doc-badge" id="docHeaderWords">2,500 words</span>
+                <span class="doc-badge" style="font-family:var(--font-mono);font-size:10px;" id="docHeaderFile">README.md</span>
+              </div>
+              <h1 class="doc-title-main" id="docHeaderTitle">Project Overview</h1>
+              <p class="doc-description" id="docHeaderDesc">Loading description...</p>
+            </header>
+
+            <!-- Rendered Markdown Body -->
+            <div class="markdown-body" id="markdownContent">
+              <!-- Rendered markdown inserted here -->
+            </div>
+
+          </div>
+        </article>
+
+        <!-- RIGHT SIDEBAR: TABLE OF CONTENTS -->
+        <aside class="toc-sidebar" id="tocSidebar">
+          <div class="toc-header">
+            <span>On This Page</span>
+          </div>
+
+          <!-- TOC Search Filter -->
+          <input type="text" class="toc-filter-input" id="tocFilterInput" placeholder="Filter sections...">
+
+          <!-- Headings List -->
+          <ul class="toc-list" id="tocList">
+            <!-- Dynamic TOC headings inserted here -->
+          </ul>
+        </aside>
+
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- SEARCH MODAL (Ctrl+K) -->
+  <div class="search-modal-backdrop" id="searchModalBackdrop">
+    <div class="search-modal">
+      <div class="search-input-wrapper">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="globalSearchInput" placeholder="Search across all 8 documents and modules..." autocomplete="off">
+        <span class="kbd-shortcut">ESC</span>
+      </div>
+      
+      <div class="search-results" id="searchResults">
+        <!-- Results populated dynamically -->
+      </div>
+      
+      <div class="search-modal-footer">
+        <span>Tip: Type any keyword, component name, or architecture term</span>
+        <span>Navigation: Click or Enter</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Element -->
+  <div class="toast-notice" id="toastNotice"></div>
+
+  <!-- Vendor Scripts -->
+  <script src="assets/marked.min.js"></script>
+  <script src="assets/highlight.min.js"></script>
+  <script src="assets/dart.min.js"></script>
+  <script src="assets/yaml.min.js"></script>
+
+  <!-- Pre-compiled Documentation Data (enables zero-setup direct file:// opening) -->
+  <script src="docs_data.js"></script>
+
+  <!-- Application Logic -->
+  <script src="app.js"></script>
+
+</body>
+</html>

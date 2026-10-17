@@ -1,0 +1,475 @@
+### 20 | Snackbars | Feedback
+src: lib/03_feedback/app_snackbars.dart
+symbol: showError
+origin: SM, KA
+desc: Consistent success, error (with Retry) and info messages.
+use: Confirming saves, reporting failures, undo prompts
+in: context.showSuccess(msg) / showError(msg, error:, stackTrace:, onRetry:) / showInfo(msg, action:); AppSnackbars.* for a captured messenger
+out: A themed SnackBar (replaces the current one)
+deps: Flutter only
+integ: Call after an action; check context.mounted after awaits
+cx: Low
+defend: Raw exception text never reaches the user (it goes to the log); a new message replaces a stale one instead of queueing
+tests: test/03_feedback/feedback_test.dart :: group:Snackbars
+status: full
+edge: Retry keeps the error up longer; messenger may be absent (no crash)
+limits: One message at a time by design
+example:
+context.showError("Couldn't save.", error: e, stackTrace: st, onRetry: save);
+---
+### 21 | LoadingView / EmptyView / ErrorView | Feedback
+src: lib/03_feedback/state_views.dart
+symbol: EmptyView
+origin: SM, KA, CP
+desc: The three non-happy-path states with one shared layout.
+use: Every list or detail screen
+in: LoadingView(message, compact); EmptyView(icon, title, message, actionLabel, onAction, compact); ErrorView(message, title, icon, onRetry, retryLabel, compact)
+out: Centered state view with optional action
+deps: Flutter only
+integ: Return from build for each state, or let AsyncValueView pick
+cx: Low
+defend: Judges look for empty and error states; one component makes them consistent and cheap
+tests: test/03_feedback/feedback_test.dart :: group:State views
+status: full
+edge: Action button only appears when a callback is given
+limits: Generic illustrations (icons only)
+example:
+const EmptyView(icon: Icons.inbox_outlined, title: 'No notes yet', message: 'Tap + to add one.')
+---
+### 22 | AsyncValueView | Feedback
+src: lib/03_feedback/async_value_view.dart
+symbol: AsyncValueView
+origin: NEW
+desc: Maps a Riverpod AsyncValue to loading / error / empty / data in one widget.
+use: Any provider that loads data
+in: value, data(T), onRetry, isEmpty, empty, loading, errorMessage
+out: The right widget for the state
+deps: flutter_riverpod
+integ: AsyncValueView(value: ref.watch(p), onRetry: () => ref.invalidate(p), data: …)
+cx: Low
+defend: Removes repeated .when boilerplate and keeps showing data during a refresh instead of flashing a spinner
+tests: test/03_feedback/feedback_test.dart :: group:AsyncValueView
+status: full
+edge: Refresh with existing data keeps the data; retry hidden without onRetry
+limits: One layout per state
+example:
+AsyncValueView(value: ref.watch(notesProvider), onRetry: () => ref.invalidate(notesProvider), isEmpty: (n) => n.isEmpty, empty: const EmptyView(icon: Icons.notes, title: 'No notes'), data: (n) => NotesList(n))
+---
+### 23 | OfflineBanner | Feedback
+src: lib/03_feedback/offline_banner.dart
+symbol: OfflineBanner
+origin: CP, KA
+desc: Persistent "you're offline" strip, optionally with the age of cached data.
+use: Any app that can lose connectivity
+in: isOnline, syncedAt?, message?, now?
+out: Banner (nothing while online)
+deps: Flutter only
+integ: OfflineBanner(isOnline: ref.watch(isOnlineProvider))
+cx: Low
+defend: Takes plain values, so it works with any connectivity source and is trivially testable
+tests: test/03_feedback/feedback_test.dart :: group:OfflineBanner
+status: full
+edge: Shows "showing what we had 12m ago" when syncedAt is given
+limits: Display only — it does not detect connectivity itself (see #59)
+example:
+OfflineBanner(isOnline: ref.watch(isOnlineProvider), syncedAt: cache.syncedAt)
+---
+### 24 | PendingSyncBanner | Feedback
+src: lib/03_feedback/offline_banner.dart
+symbol: PendingSyncBanner
+origin: KA
+desc: "N changes waiting to sync" with a Sync now button.
+use: Offline-first apps with a write queue
+in: pendingCount, isOnline, onSyncNow()
+out: Banner; onSyncNow
+deps: Flutter only
+integ: Feed OfflineQueue.pendingCount / OfflineFirstRepository.pendingCount
+cx: Low
+defend: Makes unsynced work visible, which is the honest UX for offline writes
+tests: test/03_feedback/feedback_test.dart :: group:PendingSyncBanner
+status: full
+edge: Hidden at zero; no sync button while offline; failed sync keeps the banner
+limits: Count only, not which items
+example:
+PendingSyncBanner(pendingCount: pending, isOnline: online, onSyncNow: repo.sync)
+---
+### 25 | StepProgressView | Feedback
+src: lib/03_feedback/step_progress.dart
+symbol: StepProgressView
+origin: SM
+desc: Long jobs shown as real steps plus a running clock.
+use: AI generation, uploads, multi-stage processing
+in: steps: List<ProgressStep(key, label)>, currentKey, progress?, progressLabel?, expectation?, showClock
+out: Step list with ticks and a clock
+deps: Flutter only
+integ: Advance currentKey from real events
+cx: Low
+defend: A minute behind a spinner looks hung; real steps and a clock prove progress honestly
+tests: test/03_feedback/feedback_test.dart :: group:StepProgressView
+status: full
+edge: Determinate bar only for the current step
+limits: Linear steps only
+example:
+StepProgressView(steps: const [ProgressStep('upload', 'Uploading'), ProgressStep('ai', 'Summarising')], currentKey: job.stage)
+---
+### 26 | Alerts | Dialog
+src: lib/04_dialogs_and_sheets/alerts.dart
+symbol: showAppConfirm
+origin: SM (KA port)
+desc: Themed alert, confirm, message and text-prompt dialogs.
+use: Confirm destructive actions, quick text input, notices
+in: showAppAlert(context, title, message, actions) / showAppConfirm(title, message, confirmLabel, destructive) / showAppMessage / showTextPrompt
+out: int? / bool / void / String?
+deps: Flutter only
+integ: if (await showAppConfirm(context, title: 'Delete?', destructive: true)) delete();
+cx: Low
+defend: Callbacks run after the dialog has closed (no context-after-pop bugs); the prompt avoids a controller-used-after-dispose crash from the source
+tests: test/04_dialogs_and_sheets/dialogs_test.dart :: group:showAppConfirm ; test/04_dialogs_and_sheets/dialogs_test.dart :: group:showTextPrompt ; test/04_dialogs_and_sheets/dialogs_test.dart :: name:action callbacks ; test/04_dialogs_and_sheets/dialogs_test.dart :: name:three actions ; test/04_dialogs_and_sheets/dialogs_test.dart :: name:showAppMessage
+status: full
+edge: Dismissed by tapping outside → false/null; three actions stack vertically
+limits: iOS-style look on every platform
+example:
+final ok = await showAppConfirm(context, title: 'Delete all?', message: 'This cannot be undone.', destructive: true);
+---
+### 27 | showPickerSheet + SheetGrabber | Dialog
+src: lib/04_dialogs_and_sheets/picker_sheet.dart
+symbol: showPickerSheet
+origin: SM, KA
+desc: Action-sheet picker that replaces dropdowns and menus.
+use: Sort options, choosing one of a few values, contextual menus
+in: options: List<PickerOption<T>(value, label, subtitle, icon, isDestructive)>, selected, title, message
+out: Future<T?>
+deps: Flutter only
+integ: Used by SearchFilterBar (sort) and SettingsChoice
+cx: Low
+defend: Bigger touch targets than a dropdown, works with screen readers, capped height and width
+tests: test/04_dialogs_and_sheets/dialogs_test.dart :: group:showPickerSheet ; test/04_dialogs_and_sheets/dialogs_test.dart :: name:SheetGrabber
+status: full
+edge: Cancel returns null; the selected option is ticked
+limits: For long lists use a search screen instead
+example:
+final sort = await showPickerSheet<String>(context, title: 'Sort by', options: const [PickerOption('date', 'Date'), PickerOption('title', 'Title')], selected: current);
+---
+### 28 | FormSection family | Form
+src: lib/05_forms/form_section.dart
+symbol: FormSection
+origin: SM, KA
+desc: Grouped Settings-style rows: sections, rows, value pills and inline text rows.
+use: Settings, profile editing, detail screens
+in: FormSection(header, footer, children); FormRowTile(label, value, trailing, leading, onTap, showChevron, valueAsPill, destructive); ValuePill; TextFieldRow
+out: Grouped card UI
+deps: Flutter only
+integ: Compose rows inside a FormSection
+cx: Low
+defend: Ink-capable card so ripples show; the basis of SettingsTemplate-like screens
+tests: test/05_forms/forms_test.dart :: group:FormSection
+status: full
+edge: Destructive rows use the error colour
+limits: Visual grouping only; validation lives in your Form
+example:
+FormSection(header: 'Account', children: [FormRowTile(label: 'Email', value: user.email)])
+---
+### 29 | SegmentedControl | Form
+src: lib/05_forms/segmented_control.dart
+symbol: SegmentedControl
+origin: SM
+desc: iOS-style filled segmented switch.
+use: Switching periods (Week/Month), views, modes
+in: segments: Map<T, String>, selected, onChanged(T)
+out: onChanged
+deps: Flutter only
+integ: Hold the selected value in state
+cx: Low
+defend: Complements Material's outlined SegmentedButton; re-selecting is a no-op (no wasted rebuilds)
+tests: test/05_forms/forms_test.dart :: name:SegmentedControl
+status: full
+edge: Re-selection ignored
+limits: Best with 2–4 short labels
+example:
+SegmentedControl<int>(segments: const {7: 'Week', 30: 'Month'}, selected: days, onChanged: setDays)
+---
+### 30 | NumberStepper | Form
+src: lib/05_forms/number_stepper.dart
+symbol: NumberStepper
+origin: KA
+desc: − / + integer input with bounds and step.
+use: Servings, quantities, guests, sets/reps
+in: value, onChanged, min, max, step
+out: onChanged(int)
+deps: Flutter only
+integ: Controlled value in state
+cx: Low
+defend: Screen readers can increase/decrease it (semantic adjustability)
+tests: test/05_forms/forms_test.dart :: group:NumberStepper
+status: full
+edge: Buttons disable at bounds
+limits: Integers only
+example:
+NumberStepper(value: servings, min: 1, max: 12, onChanged: setServings)
+---
+### 31 | CalendarGrid / DateField / showDatePickerSheet | Form
+src: lib/05_forms/calendar_grid.dart
+symbol: CalendarGrid
+origin: SM, KA
+desc: Month-grid date picker as an inline grid, a form row or a sheet; optional event dots.
+use: Booking dates, due dates, agendas, streak views
+in: selected, onSelected, firstDate, lastDate, dayColor, firstWeekday, showCard, markerCount(day); DateField(value, onChanged, label)
+out: onSelected(DateTime); showDatePickerSheet → DateTime?
+deps: Flutter only (no intl)
+integ: DateField inside forms; CalendarGrid inside AgendaCalendar
+cx: Low
+defend: Configurable week start (source was Sunday-only), DST-safe cells, no intl dependency
+tests: test/05_forms/forms_test.dart :: group:Calendar ; test/06_screen_templates/responsive_layout_test.dart :: name:CalendarGrid
+status: full
+edge: Disabled days outside the range; month paging
+limits: Single date (no range selection)
+example:
+DateField(label: 'Due date', value: due, onChanged: (d) => setState(() => due = d))
+---
+### 32 | Validators | Form
+src: lib/05_forms/validators.dart
+symbol: Validators
+origin: NEW
+desc: Composable form validators.
+use: Every form
+in: required, email, minLength, maxLength, matches, integer, number, phone, url, pattern, compose
+out: String? Function(String?)
+deps: Pure Dart
+integ: validator: Validators.compose([Validators.required(), Validators.email()])
+cx: Low
+defend: Format checks let empty input pass, so "required" stays a separate, explicit rule
+tests: test/05_forms/forms_test.dart :: group:Validators ; test/05_forms/dynamic_form_test.dart :: group:New validators
+status: full
+edge: number accepts a comma decimal; pattern must match the whole input
+limits: Client-side only — validate on the server too
+example:
+validator: Validators.compose([Validators.required('Enter your email'), Validators.email()])
+---
+### 33 | PasswordChecklist | Form
+src: lib/05_forms/password_checklist.dart
+symbol: PasswordChecklist
+origin: SM
+desc: Live password requirements checklist.
+use: Sign-up and change-password forms
+in: PasswordChecklist(password, rules?); passwordMeetsAll(text, rules?)
+out: Ticked list; bool
+deps: Flutter only
+integ: Rebuild with the password field's text
+cx: Low
+defend: Rules are data, not hard-coded; semantics read "met"/"not met"
+tests: test/05_forms/forms_test.dart :: group:Password rules
+status: full
+edge: Custom rules supported
+limits: Strength is rule-based, not entropy-based
+example:
+PasswordChecklist(password: controller.text)
+---
+### 34 | ConsentCheckbox | Form
+src: lib/05_forms/consent_checkbox.dart
+symbol: ConsentCheckbox
+origin: CP
+desc: "I agree to the Terms and Privacy Policy" checkbox with tappable links.
+use: Sign-up, data-collection consent
+in: value, onChanged?, links: List<ConsentLink(label, onTap)>, prefix
+out: onChanged(bool)
+deps: Flutter only
+integ: Disable submit until checked
+cx: Low
+defend: Recognizers are disposed and links stay reachable for screen readers
+tests: test/05_forms/forms_test.dart :: group:ConsentCheckbox
+status: full
+edge: Disabled when onChanged is null
+limits: English sentence template
+example:
+ConsentCheckbox(value: agreed, onChanged: setAgreed, links: [ConsentLink('Terms', openTerms)])
+---
+### 35 | MarkdownEditingController | Form
+src: lib/05_forms/markdown_editing_controller.dart
+symbol: MarkdownEditingController
+origin: SM
+desc: TextEditingController that styles Markdown live while typing.
+use: Note editors, journals
+in: MarkdownEditingController(text:)
+out: Styled TextSpans with identical text
+deps: Flutter only
+integ: Pass as a TextField's controller
+cx: Low
+defend: Keeps the plain text identical, so the cursor and IME behave correctly; shares the renderer's parser
+tests: test/05_forms/forms_test.dart :: group:MarkdownEditingController
+status: full
+edge: Markers are styled, never removed
+limits: Inline styles only (no block layout in the editor)
+example:
+final controller = MarkdownEditingController(text: note.body);
+TextField(controller: controller, maxLines: null)
+---
+### 36 | OnboardingPager | Screen template
+src: lib/06_screen_templates/onboarding_pager.dart
+symbol: OnboardingPager
+origin: CP (+SM/KA dots)
+desc: First-run walkthrough with Skip, Next and Get started.
+use: Explaining the app's value before sign-in
+in: slides: List<OnboardingSlide(title, body, icon|image)>, onFinish, labels
+out: onFinish
+deps: Flutter only
+integ: Persist "done" in onFinish (PrefsStore) and route with guardRedirect
+cx: Low
+defend: No app data inside, so it drops into any app
+tests: test/06_screen_templates/templates_test.dart :: group:OnboardingPager
+status: full
+edge: Skip finishes immediately
+limits: Swipe/next only; no video
+example:
+OnboardingPager(slides: const [OnboardingSlide(title: 'Plan', body: 'Know what to do next', icon: Icons.flag)], onFinish: done)
+---
+### 37 | AuthFormScreen | Screen template
+src: lib/06_screen_templates/auth_form_screen.dart
+symbol: AuthFormScreen
+origin: SM, KA
+desc: Complete sign-in / sign-up screen with validation, errors, loading and social buttons.
+use: Any app with accounts
+in: mode, onSubmit(AuthFormData), isLoading, errorText, onSwitchMode, onForgotPassword, askForName, passwordRules, socialButtons, footer, title, subtitle, logo
+out: onSubmit(AuthFormData(mode, email, password, name))
+deps: Flutter only
+integ: Pair with ActionController (#45) and AuthService (#55) — or a fake for demos
+cx: Low
+defend: Request state lives outside the screen (ActionController), which removes per-button spinner bugs
+tests: test/06_screen_templates/templates_test.dart :: group:AuthFormScreen
+status: full
+edge: Trims email; blocks submit while loading; enforces password rules on sign-up
+limits: Email/password layout; OTP is a separate screen (#86)
+example:
+AuthFormScreen(mode: AuthMode.signIn, isLoading: action.isLoading, errorText: error, onSubmit: (d) => ref.read(signIn.notifier).run(() => auth.signIn(email: d.email, password: d.password)))
+---
+### 38 | MaxWidthFrame + responsive helpers | Screen template
+src: lib/06_screen_templates/responsive_frame.dart
+symbol: MaxWidthFrame
+origin: SM
+desc: Caps content width on tablets/desktop and offers simple responsive helpers.
+use: Forms and reading screens on wide displays
+in: MaxWidthFrame(child, maxWidth); MaxWidthSliver; context.isTablet; context.responsive(phone:, tablet:); adaptiveColumnCount(width)
+out: Constrained layout
+deps: Flutter only
+integ: Wrap a screen body
+cx: Low
+defend: Fixes a height-expansion bug from the source (heightFactor: 1); no screen-scaling package
+tests: test/06_screen_templates/templates_test.dart :: group:Responsive
+status: full
+edge: isTablet uses the shortest side
+limits: Use ResponsiveBuilder (#85) for real multi-layout screens
+example:
+MaxWidthFrame(maxWidth: 640, child: form)
+---
+### 39 | TabShell | Navigation
+src: lib/07_navigation/tab_shell.dart
+symbol: TabShell
+origin: CP, SM
+desc: Bottom-tab frame that keeps each tab's state; switches to a NavigationRail on wide screens.
+use: The main shell of most apps (3–5 top-level sections)
+in: destinations: List<TabDestination(label, icon, selectedIcon, builder)>, initialIndex, onIndexChanged, onReselect, railBreakpoint
+out: Scaffold with navigation
+deps: Flutter only
+integ: Use as MaterialApp.home (or inside SessionGate's ready state)
+cx: Low
+defend: Tabs build lazily (not all at launch) and keep their state; adaptive rail from 840 px
+tests: test/07_navigation/navigation_test.dart :: group:TabShell ; test/06_screen_templates/responsive_layout_test.dart :: name:TabShell
+status: full
+edge: Re-selecting a tab calls onReselect (e.g. scroll to top)
+limits: No per-tab navigation stacks (use go_router's StatefulShellRoute for that)
+example:
+TabShell(destinations: [TabDestination(label: 'Home', icon: Icons.home, builder: (_) => const HomeScreen()), TabDestination(label: 'Settings', icon: Icons.settings, builder: (_) => const SettingsScreen())])
+---
+### 40 | SessionGate / SessionController | Navigation
+src: lib/07_navigation/session_gate.dart
+symbol: SessionGate
+origin: CP (improved)
+desc: Top-level screen state machine: loading / signed out / needs setup / ready / check failed.
+use: Apps with sign-in and a profile-setup step
+in: Override sessionSourceProvider with SessionSource(userIds, currentUserId, isSetupComplete?); SessionGate(state, loading, signedOut, needsSetup, ready, checkFailed)
+out: The screen for the current state; refresh()
+deps: flutter_riverpod
+integ: Use as MaterialApp.home; feed auth events from your backend
+cx: Medium
+defend: One explicit state machine replaces scattered redirects; a failed first check is retryable instead of an endless splash; state is never written in build
+tests: test/07_navigation/navigation_test.dart :: group:SessionController ; test/07_navigation/navigation_test.dart :: name:SessionGate builds
+status: full
+edge: Failed refresh keeps a signed-in user where they are; works without a setup step
+limits: Needs a source of auth events (Supabase, Firebase or a fake)
+example:
+SessionGate(state: ref.watch(sessionProvider), loading: (_) => const SplashScreen(), signedOut: (_) => const SignInScreen(), ready: (_, uid) => const HomeShell())
+---
+### 41 | DeepLinkQueue | Navigation
+src: lib/07_navigation/deep_link_queue.dart
+symbol: DeepLinkQueue
+origin: CP
+desc: Holds deep links (notification taps, links) until the app is ready to open them.
+use: Notification taps on cold start, links before sign-in completes
+in: DeepLinkQueue(isReady, open); handle(path); flush(); clear()
+out: open(path) once, when ready
+deps: Pure Dart
+integ: Route ReminderScheduler taps through it; flush when the session becomes ready
+cx: Low
+defend: Fixes the classic lost-tap-on-cold-start bug without coupling to any feature
+tests: test/07_navigation/navigation_test.dart :: group:DeepLinkQueue
+status: full
+edge: Only the latest link is kept; clear drops it
+limits: In-memory (not persisted across process death)
+example:
+final links = DeepLinkQueue(isReady: () => session is SessionReady, open: (p) => router.go(p));
+---
+### 42 | guardRedirect / RouterRefresh | Navigation
+src: lib/07_navigation/router_guard.dart
+symbol: guardRedirect
+origin: KA, SM
+desc: Route-guard rules as a pure function, plus a Listenable that re-runs redirects when providers change.
+use: go_router apps with sign-in, onboarding and public pages
+in: guardRedirect(location, isLoading, isSignedIn, onboardingDone, paths…, publicPaths); RouterRefresh(ref, providers)
+out: String? redirect target; Listenable
+deps: flutter_riverpod (RouterRefresh); go_router is NOT a toolkit dependency
+integ: GoRouter(refreshListenable: RouterRefresh(ref, [sessionProvider]), redirect: (c, s) => guardRedirect(...))
+cx: Medium
+defend: A pure function is testable without a router; returns null when already at the target, so no redirect loops
+tests: test/07_navigation/navigation_test.dart :: group:guardRedirect ; test/07_navigation/navigation_test.dart :: name:RouterRefresh
+status: full
+edge: Loading holds everything on splash; first run goes to onboarding before sign-in
+limits: Client-side UX only — authorization must be enforced on the server
+example:
+redirect: (context, state) => guardRedirect(location: state.matchedLocation, isLoading: s is SessionLoading, isSignedIn: s is SessionReady)
+---
+### 43 | Fade-through transition + UnfocusOnNavigate | Navigation
+src: lib/07_navigation/page_transitions.dart
+symbol: UnfocusOnNavigate
+origin: KA
+desc: A calm page transition theme, and an observer that dismisses the keyboard on navigation.
+use: Every app
+in: fadeThroughTransitions (PageTransitionsTheme); UnfocusOnNavigate() (NavigatorObserver)
+out: Theme / observer
+deps: Flutter only
+integ: AppTheme.build(pageTransitionsTheme: fadeThroughTransitions); MaterialApp(navigatorObservers: [UnfocusOnNavigate()])
+cx: Low
+defend: Fixes the keyboard re-opening when returning to a screen
+tests: test/07_navigation/navigation_test.dart :: name:fade-through
+status: full
+edge: Works with any Navigator
+limits: One transition style
+example:
+MaterialApp(navigatorObservers: [UnfocusOnNavigate()], theme: AppTheme.build(p, Brightness.light, pageTransitionsTheme: fadeThroughTransitions))
+---
+### 44 | UserProviderScope | State module
+src: lib/07_navigation/user_provider_scope.dart
+symbol: UserProviderScope
+origin: KA
+desc: A fresh Riverpod ProviderScope per signed-in account.
+use: Apps where several accounts can use one device
+in: userIds: Stream<String?>, initialUserId, overrides, child
+out: Rebuilt provider container when the user changes
+deps: flutter_riverpod
+integ: Wrap the app in main() instead of a plain ProviderScope
+cx: Medium
+defend: Guarantees user A's cached data never shows to user B, instead of a hand-maintained invalidation list
+tests: test/07_navigation/navigation_test.dart :: name:UserProviderScope
+status: full
+edge: Same user id → same container
+limits: All provider state resets on account switch (by design)
+example:
+runApp(UserProviderScope(initialUserId: auth.currentUser?.id, userIds: userIdChanges(client), child: const App()))
